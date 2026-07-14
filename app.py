@@ -140,24 +140,9 @@ def highlight_returns(val):
         return f'color: {color}; font-weight: bold;'
     return ''
 
-# 이격도 및 RSI 과열/과매도 색상 매핑
-def highlight_oversold_overbought(val, column_name):
-    # RSI 기준
-    if column_name == "RSI (14일)":
-        if val >= 65: return 'background-color: #ffcccc; color: #cc0000;' # 과열(적색)
-        elif val <= 35: return 'background-color: #e6f3ff; color: #0066cc;' # 공포(청색)
-    # 이격도 일반 기준 (대략적 시각화)
-    elif "이격도" in column_name:
-        if val >= 105: return 'background-color: #ffe6e6;'
-        elif val <= 95: return 'background-color: #e6f2ff;'
-    return ''
-
 # 카테고리별 아코디언 배치로 모바일 수직 스크롤 압축
 for category, table in category_tables.items():
     with st.expander(f"📊 {category} 데이터 명세 보기", expanded=True):
-        
-        # 판다스 Styler 객체를 통한 고급 시각화 구현 (최신 Pandas map() 표준 적용)
-styled_table = table.style.map(highlight_returns, subset=["전일대비 등락"])\.format({"전일대비 등락": "{:+.2f}%", "현재 수치": "{:,.2f}"})
-
-            
+        # 최신 Pandas map() 표준 적용 및 안전한 한 줄 포맷팅 처리
+        styled_table = table.style.map(highlight_returns, subset=["전일대비 등락"]).format({"전일대비 등락": "{:+.2f}%", "현재 수치": "{:,.2f}"})
         st.dataframe(styled_table, use_container_width=True)
