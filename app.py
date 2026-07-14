@@ -131,13 +131,13 @@ def evaluate_gems_signals(category_tables, cnn_fg):
         
         if trigger_active and filter_met:
             if vix_val > 35.0:
-                signals["S&P 500"] = {"status": "🚨 LOCK-UP", "reason": "유동성 위기 오버라이드 작동 (VIX > 35)", "color": "orange", "action": "매수 보류 및 예비현금 10% 확보 대기"}
+                signals["S&P 500"] = {"status": "🚨 LOCK-UP", "reason": "유동성 위기 오버라이드 작동 (VIX > 35)", "color": "#FFA500", "action": "매수 보류 및 예비현금 10% 확보 대기"}
             elif usdkrw_val >= 1400.0:
-                signals["S&P 500"] = {"status": "🚨 LOCK-UP", "reason": "고환율 방어 버퍼 작동 (환율 >= 1400원)", "color": "orange", "action": "기계적 매수 1회 강제 지연 (FX Buffer)"}
+                signals["S&P 500"] = {"status": "🚨 LOCK-UP", "reason": "고환율 방어 버퍼 작동 (환율 >= 1400원)", "color": "#FFA500", "action": "기계적 매수 1회 강제 지연 (FX Buffer)"}
             else:
-                signals["S&P 500"] = {"status": "🟢 BUY", "reason": f"200일 이격도({spx_disp}%) 및 필터 통과 (RSI: {spx_rsi} / CNN: {cnn_fg})", "color": "green", "action": "가용 현금의 20% 기계적 집행"}
+                signals["S&P 500"] = {"status": "🟢 BUY", "reason": f"200일 이격도({spx_disp}%) 및 필터 통과 (RSI: {spx_rsi} / CNN: {cnn_fg})", "color": "#2ECC71", "action": "가용 현금의 20% 기계적 집행"}
         else:
-            signals["S&P 500"] = {"status": "⚪ HOLD", "reason": "진입 기준 미도달 (추세 지지선 위 위치)", "color": "gray", "action": "관망 및 기존 비중 유지"}
+            signals["S&P 500"] = {"status": "⚪ HOLD", "reason": "진입 기준 미도달 (추세 지지선 위 위치)", "color": "#7F8C8D", "action": "관망 및 기존 비중 유지"}
 
     # 2) 나스닥 100 판정
     if "주요지수" in category_tables and "나스닥 100" in category_tables["주요지수"].index:
@@ -150,13 +150,13 @@ def evaluate_gems_signals(category_tables, cnn_fg):
         
         if trigger_active and filter_met:
             if vix_val > 35.0:
-                signals["나스닥 100"] = {"status": "🚨 LOCK-UP", "reason": "유동성 위기 오버라이드 작동 (VIX > 35)", "color": "orange", "action": "매수 보류 및 예비현금 10% 확보 대기"}
+                signals["나스닥 100"] = {"status": "🚨 LOCK-UP", "reason": "유동성 위기 오버라이드 작동 (VIX > 35)", "color": "#FFA500", "action": "매수 보류 및 예비현금 10% 확보 대기"}
             elif usdkrw_val >= 1400.0:
-                signals["나스닥 100"] = {"status": "🚨 LOCK-UP", "reason": "고환율 방어 버퍼 작동 (환율 >= 1400원)", "color": "orange", "action": "기계적 매수 1회 강제 지연 (FX Buffer)"}
+                signals["나스닥 100"] = {"status": "🚨 LOCK-UP", "reason": "고환율 방어 버퍼 작동 (환율 >= 1400원)", "color": "#FFA500", "action": "기계적 매수 1회 강제 지연 (FX Buffer)"}
             else:
-                signals["나스닥 100"] = {"status": "🟢 BUY", "reason": f"200일 이격도({ndx_disp}%) 및 필터 통과 (RSI: {ndx_rsi} / CNN: {cnn_fg})", "color": "green", "action": "가용 현금의 20% 기계적 집행"}
+                signals["나스닥 100"] = {"status": "🟢 BUY", "reason": f"200일 이격도({ndx_disp}%) 및 필터 통과 (RSI: {ndx_rsi} / CNN: {cnn_fg})", "color": "#2ECC71", "action": "가용 현금의 20% 기계적 집행"}
         else:
-            signals["나스닥 100"] = {"status": "⚪ HOLD", "reason": "진입 기준 미도달 (추세 지지선 위 위치)", "color": "gray", "action": "관망 및 기존 비중 유지"}
+            signals["나스닥 100"] = {"status": "⚪ HOLD", "reason": "진입 기준 미도달 (추세 지지선 위 위치)", "color": "#7F8C8D", "action": "관망 및 기존 비중 유지"}
 
     # 3) 인도 니프티 50 판정 (독립 필터 가동)
     if "주요지수" in category_tables and "인도 니프티 50" in category_tables["주요지수"].index:
@@ -168,9 +168,9 @@ def evaluate_gems_signals(category_tables, cnn_fg):
         filter_met = (nifty_rsi <= 42.0) or (nifty["120일 이격도"] <= 98.0)
         
         if trigger_active and filter_met:
-            signals["인도 니프티 50"] = {"status": "🟢 BUY", "reason": f"인도 독립 필터 만족 (120일 이격도: {nifty_disp120}% / RSI: {nifty_rsi})", "color": "green", "action": "독립적으로 가용 현금의 20% 즉각 진입"}
+            signals["인도 니프티 50"] = {"status": "🟢 BUY", "reason": f"인도 독립 필터 만족 (120일 이격도: {nifty_disp120}% / RSI: {nifty_rsi})", "color": "#2ECC71", "action": "독립적으로 가용 현금의 20% 즉각 진입"}
         else:
-            signals["인도 니프티 50"] = {"status": "⚪ HOLD", "reason": "인도 고성장 추세 유지 중", "color": "gray", "action": "관망 및 기존 비중 유지"}
+            signals["인도 니프티 50"] = {"status": "⚪ HOLD", "reason": "인도 고성장 추세 유지 중", "color": "#7F8C8D", "action": "관망 및 기존 비중 유지"}
 
     # 4) 코스피 판정
     if "주요지수" in category_tables and "코스피" in category_tables["주요지수"].index:
@@ -182,9 +182,9 @@ def evaluate_gems_signals(category_tables, cnn_fg):
         filter_met = kospi_rsi <= 35.0
         
         if trigger_active and filter_met:
-            signals["코스피"] = {"status": "🟢 BUY", "reason": f"60일선 붕괴 역추세 바닥 확인 (60일 이격도: {kospi_disp60}% / RSI: {kospi_rsi})", "color": "green", "action": "별동대 예산의 40% 투입 & MTS 기술적 스톱로스 동시 가동"}
+            signals["코스피"] = {"status": "🟢 BUY", "reason": f"60일선 붕괴 역추세 바닥 확인 (60일 이격도: {kospi_disp60}% / RSI: {kospi_rsi})", "color": "#2ECC71", "action": "별동대 예산의 40% 투입 & MTS 기술적 스톱로스 동시 가동"}
         else:
-            signals["코스피"] = {"status": "⚪ HOLD", "reason": "스윙 바닥 구간 미충족", "color": "gray", "action": "관망 (불필요한 국장 잡거래 원천 금지)"}
+            signals["코스피"] = {"status": "⚪ HOLD", "reason": "스윙 바닥 구간 미충족", "color": "#7F8C8D", "action": "관망 (불필요한 국장 잡거래 원천 금지)"}
 
     # 5) 미국 30년 국채금리 기반 판정 (TYX 금리 데이터 기반 역연산)
     if "미국국채금리" in category_tables and "미국 30년 국채금리" in category_tables["미국국채금리"].index:
@@ -196,9 +196,9 @@ def evaluate_gems_signals(category_tables, cnn_fg):
         filter_met = tyx_rsi >= 65.0
         
         if trigger_active and filter_met:
-            signals["미국 30년 국채금리"] = {"status": "🟢 BUY", "reason": f"30년 금리 오버슈팅 발작 (120일 이격: {tyx_disp120}% / 금리 RSI: {tyx_rsi})", "color": "green", "action": "ACE 미국30년국채액티브(H) 예산의 30% 분할 매수 실행"}
+            signals["미국 30년 국채금리"] = {"status": "🟢 BUY", "reason": f"30년 금리 오버슈팅 발작 (120일 이격: {tyx_disp120}% / 금리 RSI: {tyx_rsi})", "color": "#2ECC71", "action": "ACE 미국30년국채액티브(H) 예산의 30% 분할 매수 실행"}
         else:
-            signals["미국 30년 국채금리"] = {"status": "⚪ HOLD", "reason": "안정적 금리 추세 범위 내 위치", "color": "gray", "action": "관망 및 국채 보유 분 배당 자동 재투자"}
+            signals["미국 30년 국채금리"] = {"status": "⚪ HOLD", "reason": "안정적 금리 추세 범위 내 위치", "color": "#7F8C8D", "action": "관망 및 국채 보유 분 배당 자동 재투자"}
 
     return signals
 
@@ -233,8 +233,6 @@ gems_signals = evaluate_gems_signals(category_tables, cnn_fg)
 card_cols = st.columns(5)
 for i, (asset_name, sig) in enumerate(gems_signals.items()):
     with card_cols[i]:
-        # 다크 모드/라이트 모드 둘 다 글자 가시성을 확보하기 위해 강제 검정색(color: #333 등) 지정 제거
-        # div 내부 text-align 제거 및 디폴트 시스템 폰트 색상을 타도록 클래스 및 구조 설계 개편
         st.markdown(
             f"""
             <div style="
@@ -278,10 +276,17 @@ st.markdown("<br>", unsafe_allow_html=True)
 # ==========================================
 st.header("3부. 글로벌 자산군 다중 이격도 & 과열도 매트릭스")
 
-# 스타일링 함수 (전일대비 등락에 따른 색상 시각화 및 양수 기호화)
+# 다크 모드와 라이트 모드 테마에 맞춰 가독성을 자동 보정하는 폰트 색상 하이라이트 매직 함수
 def highlight_returns(val):
     if isinstance(val, (int, float)):
-        color = 'red' if val > 0 else 'blue' if val < 0 else 'black'
+        if val > 0:
+            # 상승 시: 다크/라이트 공용 고대비 Coral Red 적용
+            color = '#FF6B6B'
+        elif val < 0:
+            # 하락 시: 다크 모드에서도 쨍하게 선명한 형광 하늘색(Neon Blue) 적용
+            color = '#58A6FF'
+        else:
+            color = 'inherit'
         return f'color: {color}; font-weight: bold;'
     return ''
 
