@@ -55,12 +55,12 @@ def calculate_master_metrics(df):
     # 전일 종가 대비 상승률 (%)
     daily_return = ((current_price - previous_price) / previous_price) * 100
     
-    # 기간별 이동평균선 및 이격도(Disparity) 동시 연산
+    # 기간별 이동평균선 및 이격도(Disparity) 동시 연산 (소수점 첫째 자리 제한)
     periods = [20, 60, 120, 200]
     disparities = {}
     for p in periods:
         ma = df['Close'].rolling(window=p).mean().iloc[-1]
-        disparities[f"{p}일 이격도"] = round((current_price / ma) * 100, 2)
+        disparities[f"{p}일 이격도"] = round((current_price / ma) * 100, 1)
     
     # 14일 RSI 연산
     delta = df['Close'].diff()
@@ -117,7 +117,6 @@ with st.spinner("⏳ 13대 마스터 지수의 시계열 데이터를 팩팅 중
 def evaluate_gems_signals(category_tables, cnn_fg):
     signals = {}
     
-    # 7대 선행지표 기반 글로벌 방화벽 변수 추출
     vix_val = category_tables.get("변동성지수").loc["CBOE VIX", "현재 수치"] if "변동성지수" in category_tables else 0.0
     usdkrw_val = category_tables.get("통화").loc["원/달러 환율", "현재 수치"] if "통화" in category_tables else 0.0
     
@@ -127,9 +126,7 @@ def evaluate_gems_signals(category_tables, cnn_fg):
         spx_disp = spx["200일 이격도"]
         spx_rsi = spx["RSI (14일)"]
         
-        # 기본 감시 조건 통과 여부 (200일선 상단 1% 이내)
         trigger_active = spx_disp <= 101.0
-        # 필터 조건 만족 여부 (OR 연산)
         filter_met = (spx_rsi <= 40.0) or (cnn_fg <= 25)
         
         if trigger_active and filter_met:
@@ -168,10 +165,9 @@ def evaluate_gems_signals(category_tables, cnn_fg):
         nifty_rsi = nifty["RSI (14일)"]
         
         trigger_active = nifty_disp120 <= 101.0
-        filter_met = (nifty_rsi <= 42.0) or (nifty["120일 이격도"] <= 98.0) # 이격도 필터 교차 매칭
+        filter_met = (nifty_rsi <= 42.0) or (nifty["120일 이격도"] <= 98.0)
         
         if trigger_active and filter_met:
-            # 미국 매크로 VIX 및 환율 필터의 지연 룰을 100% 배제함 (India Independent Filter)
             signals["인도 니프티 50"] = {"status": "🟢 BUY", "reason": f"인도 독립 필터 만족 (120일 이격도: {nifty_disp120}% / RSI: {nifty_rsi})", "color": "green", "action": "독립적으로 가용 현금의 20% 즉각 진입"}
         else:
             signals["인도 니프티 50"] = {"status": "⚪ HOLD", "reason": "인도 고성장 추세 유지 중", "color": "gray", "action": "관망 및 기존 비중 유지"}
@@ -182,7 +178,6 @@ def evaluate_gems_signals(category_tables, cnn_fg):
         kospi_disp60 = kospi["60일 이격도"]
         kospi_rsi = kospi["RSI (14일)"]
         
-        # 60일선 하향 돌파 (이격도 100% 미만) AND RSI 35 이하
         trigger_active = kospi_disp60 < 100.0
         filter_met = kospi_rsi <= 35.0
         
@@ -197,7 +192,6 @@ def evaluate_gems_signals(category_tables, cnn_fg):
         tyx_disp120 = tyx["120일 이격도"]
         tyx_rsi = tyx["RSI (14일)"]
         
-        # 금리 120일선 대비 +5% 이상 금리 발작 AND 금리 RSI 65 이상
         trigger_active = tyx_disp120 >= 105.0
         filter_met = tyx_rsi >= 65.0
         
@@ -214,7 +208,6 @@ def evaluate_gems_signals(category_tables, cnn_fg):
 st.header("1부. 독점 매크로 센서 팩")
 col1, col2, col3 = st.columns(3)
 
-# 변수 사전 연동 안전 확보
 vix_val = category_tables.get("변동성지수").loc["CBOE VIX", "현재 수치"] if "변동성지수" in category_tables else 0.0
 usdkrw_val = category_tables.get("통화").loc["원/달러 환율", "현재 수치"] if "통화" in category_tables else 0.0
 
@@ -230,7 +223,7 @@ with col3:
 st.markdown("---")
 
 # ==========================================
-# 8. [대시보드 2부] 5대 마스터 자산 기계적 진입 가이드 (★신규 추가)
+# 8. [대시보드 2부] 5대 마스터 자산 기계적 진입 가이드 (다크 테마 최적화)
 # ==========================================
 st.header("2부. Gems 3.0 실시간 통합 실행 가이드 시그널")
 
@@ -240,6 +233,8 @@ gems_signals = evaluate_gems_signals(category_tables, cnn_fg)
 card_cols = st.columns(5)
 for i, (asset_name, sig) in enumerate(gems_signals.items()):
     with card_cols[i]:
+        # 다크 모드/라이트 모드 둘 다 글자 가시성을 확보하기 위해 강제 검정색(color: #333 등) 지정 제거
+        # div 내부 text-align 제거 및 디폴트 시스템 폰트 색상을 타도록 클래스 및 구조 설계 개편
         st.markdown(
             f"""
             <div style="
@@ -247,22 +242,22 @@ for i, (asset_name, sig) in enumerate(gems_signals.items()):
                 border-radius: 10px; 
                 padding: 15px; 
                 text-align: center; 
-                background-color: rgba(0,0,0,0.03);
+                background-color: rgba(128,128,128,0.08);
                 min-height: 200px;
             ">
-                <h4 style="margin: 0; color: #333;">{asset_name}</h4>
-                <hr style="margin: 8px 0; border: 0; border-top: 1px solid #ccc;">
+                <h4 style="margin: 0; font-weight: 700;">{asset_name}</h4>
+                <hr style="margin: 8px 0; border: 0; border-top: 1px dashed {sig['color']}; opacity: 0.5;">
                 <span style="
                     font-size: 24px; 
-                    font-weight: bold; 
+                    font-weight: 800; 
                     color: {sig['color']};
                 ">{sig['status']}</span>
-                <p style="font-size: 11px; color: #555; margin-top: 10px; height: 40px; overflow: hidden;">
+                <p style="font-size: 11px; margin-top: 10px; height: 40px; overflow: hidden; opacity: 0.8;">
                     <b>근거:</b> {sig['reason']}
                 </p>
                 <div style="
                     font-size: 12px; 
-                    font-weight: bold; 
+                    font-weight: 700; 
                     background-color: {sig['color']}; 
                     color: white; 
                     padding: 5px; 
@@ -293,8 +288,16 @@ def highlight_returns(val):
 # 카테고리별 아코디언 배치로 모바일 수직 스크롤 압축
 for category, table in category_tables.items():
     with st.expander(f"📊 {category} 데이터 명세 보기", expanded=True):
-        # 최신 Pandas map() 표준 적용 및 안전한 한 줄 포맷팅 처리
-        styled_table = table.style.map(highlight_returns, subset=["전일대비 등락"]).format({"전일대비 등락": "{:+.2f}%", "현재 수치": "{:,.2f}"})
+        # 최신 Pandas map() 표준 적용 및 안전한 한 줄 포맷팅 처리 (이격도는 소수점 첫째 자리, 등락률/RSI는 둘째 자리 유지)
+        styled_table = table.style.map(highlight_returns, subset=["전일대비 등락"]).format({
+            "전일대비 등락": "{:+.2f}%", 
+            "현재 수치": "{:,.2f}",
+            "20일 이격도": "{:.1f}%",
+            "60일 이격도": "{:.1f}%",
+            "120일 이격도": "{:.1f}%",
+            "200일 이격도": "{:.1f}%",
+            "RSI (14일)": "{:.2f}"
+        })
         st.dataframe(styled_table, use_container_width=True)
 
 # 하단에 실시간 기준시각 자동 동기화 출력 (교차 검증 및 투명성 보장)
