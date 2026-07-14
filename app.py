@@ -145,7 +145,7 @@ st.sidebar.header("⚙️ 매크로 수동 캘리브레이션")
 forward_pe = st.sidebar.slider("S&P 500 Forward P/E", 15.0, 25.0, 21.2, 0.1)
 
 # ==========================================
-# 6. 데이터 병렬 동기화 및 크롤링
+# 6. 데이터 병렬 동기화 및 크롤링 (변수 배치 선언 최상단으로 수정)
 # ==========================================
 with st.spinner("⏳ 실시간 데이터 인프라 튜닝 중..."):
     cnn_fg, cnn_rating = get_realtime_cnn_fg()
@@ -166,14 +166,23 @@ with st.spinner("⏳ 실시간 데이터 인프라 튜닝 중..."):
             cols_order = ["지수/지표명", "현재 수치", "전일대비 등락", "20일 이격도", "60일 이격도", "120일 이격도", "200일 이격도", "RSI (14일)"]
             category_tables[category] = df_cat[cols_order].set_index("지수/지표명")
 
+# --- 에러 원천 차단: 연산 및 화면 렌더링 전에 핵심 데이터 변수 선언 락인(Lock-in) ---
+try:
+    vix_val = float(category_tables.get("변동성지수").loc["CBOE VIX", "현재 수치"])
+except Exception:
+    vix_val = 0.0
+
+try:
+    usdkrw_val = float(category_tables.get("통화").loc["원/달러 환율", "현재 수치"])
+except Exception:
+    usdkrw_val = 0.0
+
+
 # ==========================================
 # 7. Gems 3.0 규칙 기반 진입 조건 판정 백엔드 엔진
 # ==========================================
-def evaluate_gems_signals(category_tables, cnn_fg):
+def evaluate_gems_signals(category_tables, cnn_fg, vix_val, usdkrw_val):
     signals = {}
-    
-    vix_val = category_tables.get("변동성지수").loc["CBOE VIX", "현재 수치"] if "변동성지수" in category_tables else 0.0
-    usdkrw_val = category_tables.get("통화").loc["원/달러 환율", "현재 수치"] if "통화" in category_tables else 0.0
     
     # 1) S&P 500
     if "주요지수" in category_tables and "S&P 500" in category_tables["주요지수"].index:
@@ -254,7 +263,7 @@ def evaluate_gems_signals(category_tables, cnn_fg):
 
 
 # ==========================================
-# 8. [통합 리뉴얼] 최상단 3:7 컴팩트 레이아웃 분할
+# 8. [통합 리뉴얼] 최상단 3:7 컴팩트 레이아웃 분할 (구조 정상화 완료)
 # ==========================================
 left_col, right_col = st.columns([3, 7])
 
@@ -262,7 +271,7 @@ left_col, right_col = st.columns([3, 7])
 with left_col:
     st.markdown('<p style="font-size:1.1rem; font-weight:700; margin-bottom:0.8rem;">📊 1부. 매크로 센서 보드</p>', unsafe_allow_html=True)
     
-    # 원달러 경고 연동 컬러 매칭
+    # 원달러 및 VIX 위험 상태에 따른 컬러 변동 로직
     ex_color = "#E74C3C" if usdkrw_val >= 1400.0 else "#2ECC71"
     vix_color = "#E74C3C" if vix_val >= 35.0 else "#2ECC71"
     
@@ -285,7 +294,8 @@ with left_col:
 with right_col:
     st.markdown('<p style="font-size:1.1rem; font-weight:700; margin-bottom:0.8rem;">⚡ 2부. Gems 3.0 실시간 통합 실행 시그널</p>', unsafe_allow_html=True)
     
-    gems_signals = evaluate_gems_signals(category_tables, cnn_fg)
+    # 상단에서 이미 정의 완료된 vix_val, usdkrw_val 주입 연산
+    gems_signals = evaluate_gems_signals(category_tables, cnn_fg, vix_val, usdkrw_val)
     
     # 테이블 표출을 위한 Pandas DataFrame 구조화 개편
     signal_rows = []
