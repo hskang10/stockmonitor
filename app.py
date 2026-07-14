@@ -157,8 +157,7 @@ for category, table in category_tables.items():
     with st.expander(f"📊 {category} 데이터 명세 보기", expanded=True):
         
         # 판다스 Styler 객체를 통한 고급 시각화 구현 (최신 Pandas map() 표준 적용)
-styled_table = table.style.map(highlight_returns, subset=["전일대비 등락"])\
-    .format({"전일대비 등락": "{:+.2f}%", "현재 수치": "{:,.2f}"})
+styled_table = table.style.map(highlight_returns, subset=["전일대비 등락"])\.format({"전일대비 등락": "{:+.2f}%", "현재 수치": "{:,.2f}"})
 
             
         st.dataframe(styled_table, use_container_width=True)
