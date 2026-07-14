@@ -2,6 +2,7 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import requests
 
 # 1. 페이지 최적화 설정 (모바일 접속 시 사이드바 자동 개방 상태로 시작)
 st.set_page_config(
@@ -80,25 +81,46 @@ def calculate_master_metrics(df):
     return res
 
 # ==========================================
-# 4. 사이드바 수동 보정 매트릭스 (차단 방화벽)
+# 4. 실시간 CNN Fear & Greed API 크롤링 엔진 (★신규 교체)
+# ==========================================
+def get_realtime_cnn_fg():
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+    url = 'https://production.dataviz.cnn.io/index/fearandgreed/graphdata'
+    try:
+        response = requests.get(url, headers=headers, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            fng_current = data.get('fear_and_greed', {})
+            raw_score = float(fng_current.get('score', 50.0))
+            score = round(raw_score)
+            rating = fng_current.get('rating', 'NEUTRAL').upper()
+            return score, rating
+    except Exception:
+        pass
+    # 크롤링 실패 대비 보수적 안전 지향값(50점) 리턴
+    return 50, "NEUTRAL (ERROR OVERRIDE)"
+
+# ==========================================
+# 5. 수동 설정 사이드바 최적화 (S&P 500 Forward P/E만 보존)
 # ==========================================
 st.sidebar.header("⚙️ 매크로 수동 캘리브레이션")
 st.sidebar.markdown("외부 데이터 보안 규격에 따른 실시간 수동 동기화 필드")
-
-cnn_fg = st.sidebar.slider("CNN Fear & Greed Index", 0, 100, 55, 1)
 forward_pe = st.sidebar.slider("S&P 500 Forward P/E", 15.0, 25.0, 21.2, 0.1)
 
 # ==========================================
-# 5. 데이터 병렬 동기화 파이프라인 가동
+# 6. 데이터 병렬 동기화 및 CNN 크롤링 파이프라인 가동
 # ==========================================
-with st.spinner("⏳ 13대 마스터 지수의 시계열 데이터를 팩팅 중..."):
-    category_tables = {}
+with st.spinner("⏳ CNN 공포탐욕지수 및 13대 지수 시계열 데이터를 실시간 팩팅 중..."):
+    # CNN 실시간 동기화
+    cnn_fg, cnn_rating = get_realtime_cnn_fg()
     
+    category_tables = {}
     for category, assets in TARGET_ASSETS.items():
         rows = []
         for name, ticker in assets.items():
             t = yf.Ticker(ticker)
-            # 200일 이평선 연산을 위해 안정적으로 1년 반치 소싱
             h = t.history(period="1y")
             metrics = calculate_master_metrics(h)
             if metrics:
@@ -107,12 +129,11 @@ with st.spinner("⏳ 13대 마스터 지수의 시계열 데이터를 팩팅 중
         
         if rows:
             df_cat = pd.DataFrame(rows)
-            # 열 순서 재정렬
             cols_order = ["지수/지표명", "현재 수치", "전일대비 등락", "20일 이격도", "60일 이격도", "120일 이격도", "200일 이격도", "RSI (14일)"]
             category_tables[category] = df_cat[cols_order].set_index("지수/지표명")
 
 # ==========================================
-# 6. Gems 3.0 규칙 기반 진입 조건 판정 백엔드 엔진
+# 7. Gems 3.0 규칙 기반 진입 조건 판정 백엔드 엔진
 # ==========================================
 def evaluate_gems_signals(category_tables, cnn_fg):
     signals = {}
@@ -203,7 +224,7 @@ def evaluate_gems_signals(category_tables, cnn_fg):
     return signals
 
 # ==========================================
-# 7. [대시보드 1부] 수동 캘리브레이션 지표 및 실시간 경보 표기
+# 8. [대시보드 1부] 수동 캘리브레이션 지표 및 실시간 경보 표기
 # ==========================================
 st.header("1부. 독점 매크로 센서 팩")
 col1, col2, col3 = st.columns(3)
@@ -212,7 +233,8 @@ vix_val = category_tables.get("변동성지수").loc["CBOE VIX", "현재 수치"
 usdkrw_val = category_tables.get("통화").loc["원/달러 환율", "현재 수치"] if "통화" in category_tables else 0.0
 
 with col1:
-    st.metric("CNN Fear & Greed", f"{cnn_fg} pts", "25 이하 극단 공포 시 필터 프리패스")
+    # 실시간 크롤링된 데이터 매칭 출력
+    st.metric("CNN Fear & Greed", f"{cnn_fg} pts", f"{cnn_rating}")
 with col2:
     vix_status = "🚨 유동성 공포 과열 (VIX > 35)" if vix_val >= 35.0 else "✅ 정상 변동성 영역"
     st.metric("CBOE VIX Index", f"{vix_val:.2f} pts", vix_status)
@@ -223,13 +245,12 @@ with col3:
 st.markdown("---")
 
 # ==========================================
-# 8. [대시보드 2부] 5대 마스터 자산 기계적 진입 가이드 (다크 테마 최적화)
+# 9. [대시보드 2부] 5대 마스터 자산 기계적 진입 가이드 (다크 테마 최적화)
 # ==========================================
 st.header("2부. Gems 3.0 실시간 통합 실행 가이드 시그널")
 
 gems_signals = evaluate_gems_signals(category_tables, cnn_fg)
 
-# 수평형 시그널 카드 배치
 card_cols = st.columns(5)
 for i, (asset_name, sig) in enumerate(gems_signals.items()):
     with card_cols[i]:
@@ -272,28 +293,23 @@ for i, (asset_name, sig) in enumerate(gems_signals.items()):
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ==========================================
-# 9. [대시보드 3부] 13대 지수 카테고리별 데이터 그리드 렌더링
+# 10. [대시보드 3부] 13대 지수 카테고리별 데이터 그리드 렌더링
 # ==========================================
 st.header("3부. 글로벌 자산군 다중 이격도 & 과열도 매트릭스")
 
-# 다크 모드와 라이트 모드 테마에 맞춰 가독성을 자동 보정하는 폰트 색상 하이라이트 매직 함수
 def highlight_returns(val):
     if isinstance(val, (int, float)):
         if val > 0:
-            # 상승 시: 다크/라이트 공용 고대비 Coral Red 적용
             color = '#FF6B6B'
         elif val < 0:
-            # 하락 시: 다크 모드에서도 쨍하게 선명한 형광 하늘색(Neon Blue) 적용
             color = '#58A6FF'
         else:
             color = 'inherit'
         return f'color: {color}; font-weight: bold;'
     return ''
 
-# 카테고리별 아코디언 배치로 모바일 수직 스크롤 압축
 for category, table in category_tables.items():
     with st.expander(f"📊 {category} 데이터 명세 보기", expanded=True):
-        # 최신 Pandas map() 표준 적용 및 안전한 한 줄 포맷팅 처리 (이격도는 소수점 첫째 자리, 등락률/RSI는 둘째 자리 유지)
         styled_table = table.style.map(highlight_returns, subset=["전일대비 등락"]).format({
             "전일대비 등락": "{:+.2f}%", 
             "현재 수치": "{:,.2f}",
@@ -305,7 +321,6 @@ for category, table in category_tables.items():
         })
         st.dataframe(styled_table, use_container_width=True)
 
-# 하단에 실시간 기준시각 자동 동기화 출력 (교차 검증 및 투명성 보장)
 st.markdown("---")
-st.caption(f"**[데이터 교차 검증 정보]** 실시간 소스: Yahoo Finance API 동기화 | "
+st.caption(f"**[데이터 교차 검증 정보]** 실시간 소스: Yahoo Finance API & CNN Business API 동기화 | "
            f"기준 시각: {pd.Timestamp.now(tz='Asia/Seoul').strftime('%Y-%m-%d %H:%M:%S')} KST")
