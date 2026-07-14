@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import requests
 
-# 1. 페이지 설정 및 초기화 (가로 넓게 쓰기 적용)
+# 1. 페이지 설정 및 초기화
 st.set_page_config(
     page_title="Gems 3.0 Master Monitor", 
     layout="wide",
@@ -145,7 +145,7 @@ st.sidebar.header("⚙️ 매크로 수동 캘리브레이션")
 forward_pe = st.sidebar.slider("S&P 500 Forward P/E", 15.0, 25.0, 21.2, 0.1)
 
 # ==========================================
-# 6. 데이터 병렬 동기화 및 크롤링 (변수 배치 선언 최상단으로 수정)
+# 6. 데이터 병렬 동기화 및 크롤링
 # ==========================================
 with st.spinner("⏳ 실시간 데이터 인프라 튜닝 중..."):
     cnn_fg, cnn_rating = get_realtime_cnn_fg()
@@ -166,7 +166,7 @@ with st.spinner("⏳ 실시간 데이터 인프라 튜닝 중..."):
             cols_order = ["지수/지표명", "현재 수치", "전일대비 등락", "20일 이격도", "60일 이격도", "120일 이격도", "200일 이격도", "RSI (14일)"]
             category_tables[category] = df_cat[cols_order].set_index("지수/지표명")
 
-# --- 에러 원천 차단: 연산 및 화면 렌더링 전에 핵심 데이터 변수 선언 락인(Lock-in) ---
+# --- 핵심 매크로 지표 변수 사전 안전 선언 ---
 try:
     vix_val = float(category_tables.get("변동성지수").loc["CBOE VIX", "현재 수치"])
 except Exception:
@@ -263,7 +263,7 @@ def evaluate_gems_signals(category_tables, cnn_fg, vix_val, usdkrw_val):
 
 
 # ==========================================
-# 8. [통합 리뉴얼] 최상단 3:7 컴팩트 레이아웃 분할 (구조 정상화 완료)
+# 8. [통합 리뉴얼] 최상단 3:7 컴팩트 레이아웃 분할
 # ==========================================
 left_col, right_col = st.columns([3, 7])
 
@@ -271,7 +271,6 @@ left_col, right_col = st.columns([3, 7])
 with left_col:
     st.markdown('<p style="font-size:1.1rem; font-weight:700; margin-bottom:0.8rem;">📊 1부. 매크로 센서 보드</p>', unsafe_allow_html=True)
     
-    # 원달러 및 VIX 위험 상태에 따른 컬러 변동 로직
     ex_color = "#E74C3C" if usdkrw_val >= 1400.0 else "#2ECC71"
     vix_color = "#E74C3C" if vix_val >= 35.0 else "#2ECC71"
     
@@ -290,14 +289,13 @@ with left_col:
         </div>
     """, unsafe_allow_html=True)
 
-# --- 우측 열: 2부 가로형 초슬림 시그널 그리드 (Table화) ---
+# --- 우측 열: 2부 가로형 초슬림 시그널 그리드 (Table화 - 스크롤 완전 해결) ---
 with right_col:
     st.markdown('<p style="font-size:1.1rem; font-weight:700; margin-bottom:0.8rem;">⚡ 2부. Gems 3.0 실시간 통합 실행 시그널</p>', unsafe_allow_html=True)
     
-    # 상단에서 이미 정의 완료된 vix_val, usdkrw_val 주입 연산
     gems_signals = evaluate_gems_signals(category_tables, cnn_fg, vix_val, usdkrw_val)
     
-    # 테이블 표출을 위한 Pandas DataFrame 구조화 개편
+    # DataFrame 화
     signal_rows = []
     for asset, sig in gems_signals.items():
         signal_rows.append({
@@ -308,7 +306,6 @@ with right_col:
         })
     df_signals = pd.DataFrame(signal_rows).set_index("투자 자산군")
     
-    # 테이블 셀 스타일링 (BUY에 고대비 연두색 라벨 매핑)
     def style_signal_grid(row):
         color_map = {
             "🟢 BUY": "background-color: rgba(46, 204, 113, 0.25); color: #2ECC71; font-weight: bold; text-align: center;",
@@ -319,12 +316,24 @@ with right_col:
         return [color_map.get(val, "")] * len(row)
         
     styled_grid = df_signals.style.apply(style_signal_grid, axis=1)
-    st.dataframe(styled_grid, use_container_width=True, height=185)
+    
+    # 2부 스크롤 방지를 위해 height를 235px로 세밀하게 상향하고, column_config로 레이아웃 규격 가중치 락인
+    st.dataframe(
+        styled_grid, 
+        use_container_width=True, 
+        height=235,
+        column_config={
+            "투자 자산군": st.column_config.TextColumn(width="medium"),
+            "실행 판정": st.column_config.TextColumn(width="small"),
+            "매칭 근거": st.column_config.TextColumn(width="large"),
+            "기계적 액션": st.column_config.TextColumn(width="medium")
+        }
+    )
 
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # ==========================================
-# 11. [대시보드 3부] 13대 지수 카테고리별 데이터 그리드 렌더링
+# 11. [대시보드 3부] 13대 지수 카테고리별 데이터 그리드 렌더링 (열 너비 일관화 완료)
 # ==========================================
 st.markdown('<p style="font-size:1.2rem; font-weight:700; margin-bottom:0.8rem;">📋 3부. 글로벌 자산군 다중 이격도 & 과열도 매트릭스</p>', unsafe_allow_html=True)
 
@@ -339,6 +348,18 @@ def highlight_returns(val):
         return f'color: {color}; font-weight: bold;'
     return ''
 
+# 3부 열 너비 일관성 유지를 위한 컬럼별 픽셀 규격 마스터 매핑
+COLUMN_DIMENSIONS = {
+    "지수/지표명": st.column_config.TextColumn(width=160),
+    "현재 수치": st.column_config.NumberColumn(width=110),
+    "전일대비 등락": st.column_config.TextColumn(width=100),
+    "20일 이격도": st.column_config.TextColumn(width=100),
+    "60일 이격도": st.column_config.TextColumn(width=100),
+    "120일 이격도": st.column_config.TextColumn(width=100),
+    "200일 이격도": st.column_config.TextColumn(width=100),
+    "RSI (14일)": st.column_config.TextColumn(width=100)
+}
+
 for category, table in category_tables.items():
     with st.expander(f"📊 {category} 데이터 명세", expanded=True):
         styled_table = table.style.map(highlight_returns, subset=["전일대비 등락"]).format({
@@ -350,7 +371,13 @@ for category, table in category_tables.items():
             "200일 이격도": "{:.1f}%",
             "RSI (14일)": "{:.2f}"
         })
-        st.dataframe(styled_table, use_container_width=True)
+        
+        # 3부 각 카테고리별 테이블의 열 너비를 동일한 pixel 가중치로 강제 바인딩
+        st.dataframe(
+            styled_table, 
+            use_container_width=True,
+            column_config=COLUMN_DIMENSIONS
+        )
 
 st.markdown("---")
 st.caption(f"**[데이터 교차 검증 정보]** 실시간 소스: Yahoo Finance API & CNN Business API 동기화 | "
