@@ -63,25 +63,25 @@ def get_gspread_client():
 # 3. 데이터 로딩 및 정량 수치 클리닝 프로세스
 def load_and_clean_portfolio_data():
     gc = get_gspread_client()
-    sh = gc.open_by_key("1NRqjEcEE9Wls2Um4C1sgYxGJLgfZkS_iy9SNXDIryKw")[span_1](start_span)[span_1](end_span)
-    worksheet = sh.worksheet("포트폴리오")[span_2](start_span)[span_2](end_span)
+    sh = gc.open_by_key("1NRqjEcEE9Wls2Um4C1sgYxGJLgfZkS_iy9SNXDIryKw")
+    worksheet = sh.worksheet("포트폴리오")
     
-    raw_values = worksheet.get_all_values()[span_3](start_span)[span_3](end_span)
+    raw_values = worksheet.get_all_values()
     if not raw_values or len(raw_values) < 2:
         return pd.DataFrame()
         
-    headers = raw_values[0][span_4](start_span)[span_4](end_span)
-    rows = raw_values[1:][span_5](start_span)[span_5](end_span)
+    headers = raw_values[0]
+    rows = raw_values[1:]
     
-    df = pd.DataFrame(rows, columns=headers)[span_6](start_span)[span_6](end_span)
+    df = pd.DataFrame(rows, columns=headers)
     
-    # [오타 복구 프로토콜] 시트의 '펑가금액'을 '평가금액'으로 완전 교정[span_7](start_span)[span_7](end_span)
-    if '펑가금액' in df.columns:[span_8](start_span)[span_8](end_span)
-        df = df.rename(columns={'펑가금액': '평가금액'})[span_9](start_span)[span_9](end_span)
+    # [오타 복구 프로토콜] 시트의 '펑가금액'을 '평가금액'으로 완전 교정
+    if '펑가금액' in df.columns:
+        df = df.rename(columns={'펑가금액': '평가금액'})
     
     # 공백 행 및 데이터 누락 전면 제거
-    df = df[df['종목명'].str.strip() != ''].copy()[span_10](start_span)[span_10](end_span)
-    df['계좌명'] = df['계좌명'].replace('', '기타/미지정').fillna('기타/미지정')[span_11](start_span)[span_11](end_span)
+    df = df[df['종목명'].str.strip() != ''].copy()
+    df['계좌명'] = df['계좌명'].replace('', '기타/미지정').fillna('기타/미지정')
     
     # 수치 정량 클리닝 함수
     def clean_numeric(val):
@@ -89,18 +89,18 @@ def load_and_clean_portfolio_data():
             return 0.0
         val_str = str(val).strip()
         
-        if val_str in ["-", "\\-", ""]:[span_12](start_span)[span_12](end_span)
+        if val_str in ["-", "\\-", ""]:
             return 0.0
             
-        is_negative = val_str.startswith('-') or val_str.startswith('\\-')[span_13](start_span)[span_13](end_span)
-        cleaned = val_str.replace(",", "").replace("%", "").replace("-", "").replace("\\", "").strip()[span_14](start_span)[span_14](end_span)
+        is_negative = val_str.startswith('-') or val_str.startswith('\\-')
+        cleaned = val_str.replace(",", "").replace("%", "").replace("-", "").replace("\\", "").strip()
         try:
             num = float(cleaned)
             return -num if is_negative else num
         except ValueError:
             return 0.0
 
-    numeric_cols = ['보유수량', '평균단가', '현재가', '매입금액', '평가금액', '손익률', 'MDD'][span_15](start_span)[span_15](end_span)
+    numeric_cols = ['보유수량', '평균단가', '현재가', '매입금액', '평가금액', '손익률', 'MDD']
     for col in numeric_cols:
         if col in df.columns:
             df[col] = df[col].apply(clean_numeric)
@@ -111,13 +111,13 @@ try:
     df_raw = load_and_clean_portfolio_data()
     
     if df_raw.empty:
-        st.warning("⚠️ 원장에서 자산 데이터를 팩팅하지 못했습니다. 포트폴리오 탭의 구조를 확인하십시오.")[span_16](start_span)[span_16](end_span)
+        st.warning("⚠️ 원장에서 자산 데이터를 팩팅하지 못했습니다. 포트폴리오 탭의 구조를 확인하십시오.")
     else:
         # ==========================================
         # 4. 최상단 실시간 계좌 요약 (Metrics)
         # ==========================================
-        total_buy = df_raw['매입금액'].sum()[span_17](start_span)[span_17](end_span)
-        total_eval = df_raw['평가금액'].sum()[span_18](start_span)[span_18](end_span)
+        total_buy = df_raw['매입금액'].sum()
+        total_eval = df_raw['평가금액'].sum()
         total_profit = total_eval - total_buy
         total_return_pct = (total_profit / total_buy * 100) if total_buy > 0 else 0.0
         
@@ -163,7 +163,7 @@ try:
         chart_col1, chart_col2 = st.columns(2)
         
         with chart_col1:
-            df_acc_grouped = df_raw.groupby('계좌명')['평가금액'].sum().reset_index()[span_19](start_span)[span_19](end_span)
+            df_acc_grouped = df_raw.groupby('계좌명')['평가금액'].sum().reset_index()
             fig_acc = px.pie(
                 df_acc_grouped, 
                 values='평가금액', 
@@ -172,7 +172,7 @@ try:
                 title='계좌별 평가금액 비중',
                 color_discrete_sequence=px.colors.qualitative.Pastel
             )
-            # [교정] font_color를 'inherit' 대신 표준 컬러 코드인 '#888888'로 안전 락인하여 충돌 차단
+            # font_color를 표준 헥사코드로 안전하게 바인딩
             fig_acc.update_layout(
                 paper_bgcolor='rgba(0,0,0,0)',
                 plot_bgcolor='rgba(0,0,0,0)',
@@ -184,13 +184,12 @@ try:
         with chart_col2:
             fig_tree = px.treemap(
                 df_raw, 
-                path=['계좌명', '종목명'],[span_20](start_span)[span_20](end_span)
-                values='평가금액',[span_21](start_span)[span_21](end_span)
+                path=['계좌명', '종목명'], 
+                values='평가금액',
                 title='전체 포트폴리오 구성 트리맵 (종목명별)',
-                color='평가금액',[span_22](start_span)[span_22](end_span)
+                color='평가금액',
                 color_continuous_scale='YlGnBu'
             )
-            # [교정] font_color를 '#888888'로 안전 락인하여 수치 연산 마비 차단
             fig_tree.update_layout(
                 paper_bgcolor='rgba(0,0,0,0)',
                 plot_bgcolor='rgba(0,0,0,0)',
@@ -207,16 +206,16 @@ try:
         st.markdown('### 📋 세부 자산 보유 원장')
         
         COLUMN_DIMENSIONS = {
-            "계좌명": st.column_config.TextColumn(width=120),[span_23](start_span)[span_23](end_span)
-            "종목명": st.column_config.TextColumn(width=200),[span_24](start_span)[span_24](end_span)
-            "티커": st.column_config.TextColumn(width=100),[span_25](start_span)[span_25](end_span)
-            "보유수량": st.column_config.NumberColumn(width=90, format="%d"),[span_26](start_span)[span_26](end_span)
-            "평균단가": st.column_config.NumberColumn(width=100, format="%d"),[span_27](start_span)[span_27](end_span)
-            "현재가": st.column_config.NumberColumn(width=100, format="%d"),[span_28](start_span)[span_28](end_span)
-            "매입금액": st.column_config.NumberColumn(width=110, format="%d"),[span_29](start_span)[span_29](end_span)
-            "평가금액": st.column_config.NumberColumn(width=110, format="%d"),[span_30](start_span)[span_30](end_span)
-            "손익률": st.column_config.NumberColumn(width=90, format="%.2f%%"),[span_31](start_span)[span_31](end_span)
-            "MDD": st.column_config.NumberColumn(width=90, format="%.2f%%")[span_32](start_span)[span_32](end_span)
+            "계좌명": st.column_config.TextColumn(width=120),
+            "종목명": st.column_config.TextColumn(width=200),
+            "티커": st.column_config.TextColumn(width=100),
+            "보유수량": st.column_config.NumberColumn(width=90, format="%d"),
+            "평균단가": st.column_config.NumberColumn(width=100, format="%d"),
+            "현재가": st.column_config.NumberColumn(width=100, format="%d"),
+            "매입금액": st.column_config.NumberColumn(width=110, format="%d"),
+            "평가금액": st.column_config.NumberColumn(width=110, format="%d"),
+            "손익률": st.column_config.NumberColumn(width=90, format="%.2f%%"),
+            "MDD": st.column_config.NumberColumn(width=90, format="%.2f%%")
         }
         
         def highlight_dataframe(val):
@@ -231,10 +230,10 @@ try:
             return ''
 
         styled_df = df_raw.style.map(highlight_dataframe, subset=["손익률"]).format({
-            "평가금액": "{:,.0f}",[span_33](start_span)[span_33](end_span)
-            "매입금액": "{:,.0f}",[span_34](start_span)[span_34](end_span)
-            "평균단가": "{:,.0f}",[span_35](start_span)[span_35](end_span)
-            "현재가": "{:,.0f}[span_36](start_span)"[span_36](end_span)
+            "평가금액": "{:,.0f}",
+            "매입금액": "{:,.0f}",
+            "평균단가": "{:,.0f}",
+            "현재가": "{:,.0f}"
         })
         
         st.dataframe(
