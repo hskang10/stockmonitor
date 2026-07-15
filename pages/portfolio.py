@@ -8,7 +8,7 @@ import plotly.express as px
 st.set_page_config(
     page_title="Gems 3.0 Portfolio Monitor", 
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
 # 다크/라이트 하이브리드 고대비 CSS 스타일 인젝션
@@ -66,8 +66,17 @@ def load_and_clean_portfolio_data():
     gc = get_gspread_client()
     sh = gc.open("자산종합")
     worksheet = sh.worksheet("포트폴리오")
-    data = worksheet.get_all_records()
-    df = pd.DataFrame(data)
+    
+    # get_all_records() 오류를 완벽 차단하기 위해 원시 데이터 패킷 수동 파싱
+    raw_values = worksheet.get_all_values()
+    if not raw_values:
+        return pd.DataFrame()
+        
+    headers = raw_values[0]
+    rows = raw_values[1:]
+    
+    # 원본 데이터프레임 생성
+    df = pd.DataFrame(rows, columns=headers)
     
     # 공백 행 및 데이터 누락 전면 제거
     df = df[df['종목명'].str.strip() != ''].copy()
@@ -75,14 +84,20 @@ def load_and_clean_portfolio_data():
     # 계좌명 유실 시 기타로 기계적 통합 조율
     df['계좌명'] = df['계좌명'].replace('', '기타/미지정').fillna('기타/미지정')
     
-    # 원자재 및 콤마 기호 제거 후 Float 변환을 위한 수리 함수
+    # 문자와 숫자가 혼재된 구글시트 전용 정량 정제 함수 고도화
     def clean_numeric(val):
         if pd.isna(val) or str(val).strip() == "":
             return 0.0
-        cleaned = str(val).replace(",", "").replace("%", "").replace("-", "").strip()
+        val_str = str(val).strip()
+        # 특수 하이픈 및 빈칸 예외처리
+        if val_str in ["-", "\\-", ""]:
+            return 0.0
+        # 음수 판정용 플래그
+        is_negative = val_str.startswith('-') or (val_str.startswith('\\-'))
+        
+        # 콤마, 백분율 기호, 특수기호 제거
+        cleaned = val_str.replace(",", "").replace("%", "").replace("-", "").replace("\\", "").strip()
         try:
-            # 음수 값 복원 판정
-            is_negative = '-' in str(val)
             num = float(cleaned)
             return -num if is_negative else num
         except ValueError:
@@ -100,140 +115,142 @@ try:
     # 데이터 로드
     df_raw = load_and_clean_portfolio_data()
     
-    # ==========================================
-    # 4. 최상단 실시간 계좌 요약 (Metrics)
-    # ==========================================
-    total_buy = df_raw['매입금액'].sum()
-    total_eval = df_raw['평가금액'].sum()
-    total_profit = total_eval - total_buy
-    total_return_pct = (total_profit / total_buy * 100) if total_buy > 0 else 0.0
-    
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.markdown(f"""
-            <div class="metric-box">
-                <span style="font-size:0.85rem; font-weight:600; opacity:0.7;">총 투자 원금 (매입금액)</span>
-                <div style="font-size:1.6rem; font-weight:800; margin-top:5px; color:#58A6FF;">{total_buy:,.0f} 원</div>
-            </div>
-        """, unsafe_allow_html=True)
-    with col2:
-        st.markdown(f"""
-            <div class="metric-box">
-                <span style="font-size:0.85rem; font-weight:600; opacity:0.7;">총 평가 자산 (평가금액)</span>
-                <div style="font-size:1.6rem; font-weight:800; margin-top:5px; color:#2ECC71;">{total_eval:,.0f} 원</div>
-            </div>
-        """, unsafe_allow_html=True)
-    with col3:
-        profit_color = "#FF6B6B" if total_profit >= 0 else "#58A6FF"
-        st.markdown(f"""
-            <div class="metric-box">
-                <span style="font-size:0.85rem; font-weight:600; opacity:0.7;">총 누적 손익</span>
-                <div style="font-size:1.6rem; font-weight:800; margin-top:5px; color:{profit_color};">{total_profit:+,.0f} 원</div>
-            </div>
-        """, unsafe_allow_html=True)
-    with col4:
-        return_color = "#FF6B6B" if total_return_pct >= 0 else "#58A6FF"
-        st.markdown(f"""
-            <div class="metric-box">
-                <span style="font-size:0.85rem; font-weight:600; opacity:0.7;">총합 손익률</span>
-                <div style="font-size:1.6rem; font-weight:800; margin-top:5px; color:{return_color};">{total_return_pct:+.2f} %</div>
-            </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown("<hr>", unsafe_allow_html=True)
-
-    # ==========================================
-    # 5. [시각화 레이어] 계좌별 및 자산별 다차원 시각화
-    # ==========================================
-    st.markdown('### 📊 포트폴리오 비주얼 애널리틱스')
-    
-    chart_col1, chart_col2 = st.columns(2)
-    
-    with chart_col1:
-        # 계좌별 평가자산 비중 (도넛 차트)
-        df_acc_grouped = df_raw.groupby('계좌명')['평가금액'].sum().reset_index()
-        fig_acc = px.pie(
-            df_acc_grouped, 
-            values='평가금액', 
-            names='계좌명', 
-            hole=0.4,
-            title='계좌별 평가금액 비중',
-            color_discrete_sequence=px.colors.qualitative.Pastel
-        )
-        fig_acc.update_layout(
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)',
-            font_color='inherit',
-            margin=dict(t=50, b=10, l=10, r=10)
-        )
-        st.plotly_chart(fig_acc, use_container_width=True)
+    if df_raw.empty:
+        st.warning("⚠️ 원장에 수집할 자산 데이터가 존재하지 않습니다.")
+    else:
+        # ==========================================
+        # 4. 최상단 실시간 계좌 요약 (Metrics)
+        # ==========================================
+        total_buy = df_raw['매입금액'].sum()
+        total_eval = df_raw['평가금액'].sum()
+        total_profit = total_eval - total_buy
+        total_return_pct = (total_profit / total_buy * 100) if total_buy > 0 else 0.0
         
-    with chart_col2:
-        # 전체 자산 트리맵 (계좌명 -> 종목명 계층별 비중 파악에 최적)
-        fig_tree = px.treemap(
-            df_raw, 
-            path=['계좌명', '종목명'], 
-            values='평가금액',
-            title='전체 포트폴리오 구성 트리맵 (종목명별)',
-            color='평가금액',
-            color_continuous_scale='YlGnBu'
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.markdown(f"""
+                <div class="metric-box">
+                    <span style="font-size:0.85rem; font-weight:600; opacity:0.7;">총 투자 원금 (매입금액)</span>
+                    <div style="font-size:1.6rem; font-weight:800; margin-top:5px; color:#58A6FF;">{total_buy:,.0f} 원</div>
+                </div>
+            """, unsafe_allow_html=True)
+        with col2:
+            st.markdown(f"""
+                <div class="metric-box">
+                    <span style="font-size:0.85rem; font-weight:600; opacity:0.7;">총 평가 자산 (평가금액)</span>
+                    <div style="font-size:1.6rem; font-weight:800; margin-top:5px; color:#2ECC71;">{total_eval:,.0f} 원</div>
+                </div>
+            """, unsafe_allow_html=True)
+        with col3:
+            profit_color = "#FF6B6B" if total_profit >= 0 else "#58A6FF"
+            st.markdown(f"""
+                <div class="metric-box">
+                    <span style="font-size:0.85rem; font-weight:600; opacity:0.7;">총 누적 손익</span>
+                    <div style="font-size:1.6rem; font-weight:800; margin-top:5px; color:{profit_color};">{total_profit:+,.0f} 원</div>
+                </div>
+            """, unsafe_allow_html=True)
+        with col4:
+            return_color = "#FF6B6B" if total_return_pct >= 0 else "#58A6FF"
+            st.markdown(f"""
+                <div class="metric-box">
+                    <span style="font-size:0.85rem; font-weight:600; opacity:0.7;">총합 손익률</span>
+                    <div style="font-size:1.6rem; font-weight:800; margin-top:5px; color:{return_color};">{total_return_pct:+.2f} %</div>
+                </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("<hr>", unsafe_allow_html=True)
+
+        # ==========================================
+        # 5. [시각화 레이어] 계좌별 및 자산별 다차원 시각화
+        # ==========================================
+        st.markdown('### 📊 포트폴리오 비주얼 애널리틱스')
+        
+        chart_col1, chart_col2 = st.columns(2)
+        
+        with chart_col1:
+            # 계좌별 평가자산 비중 (도넛 차트)
+            df_acc_grouped = df_raw.groupby('계좌명')['평가금액'].sum().reset_index()
+            fig_acc = px.pie(
+                df_acc_grouped, 
+                values='평가금액', 
+                names='계좌명', 
+                hole=0.4,
+                title='계좌별 평가금액 비중',
+                color_discrete_sequence=px.colors.qualitative.Pastel
+            )
+            fig_acc.update_layout(
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                font_color='inherit',
+                margin=dict(t=50, b=10, l=10, r=10)
+            )
+            st.plotly_chart(fig_acc, use_container_width=True)
+            
+        with chart_col2:
+            # 전체 자산 트리맵 (계좌명 -> 종목명 계층별 비중 파악에 최적)
+            fig_tree = px.treemap(
+                df_raw, 
+                path=['계좌명', '종목명'], 
+                values='평가금액',
+                title='전체 포트폴리오 구성 트리맵 (종목명별)',
+                color='평가금액',
+                color_continuous_scale='YlGnBu'
+            )
+            fig_tree.update_layout(
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                font_color='inherit',
+                margin=dict(t=50, b=10, l=10, r=10)
+            )
+            st.plotly_chart(fig_tree, use_container_width=True)
+
+        st.markdown("<hr>", unsafe_allow_html=True)
+
+        # ==========================================
+        # 6. 세부 포트폴리오 원장 데이터 그리드 (테이블 정렬)
+        # ==========================================
+        st.markdown('### 📋 세부 자산 보유 원장')
+        
+        # 3부 데이터 그리드와 동일한 일관적 칼럼 치수 적용
+        COLUMN_DIMENSIONS = {
+            "계좌명": st.column_config.TextColumn(width=120),
+            "종목명": st.column_config.TextColumn(width=200),
+            "티커": st.column_config.TextColumn(width=100),
+            "보유수량": st.column_config.NumberColumn(width=90, format="%d"),
+            "평균단가": st.column_config.NumberColumn(width=100, format="%d"),
+            "현재가": st.column_config.NumberColumn(width=100, format="%d"),
+            "매입금액": st.column_config.NumberColumn(width=110, format="%d"),
+            "평가금액": st.column_config.NumberColumn(width=110, format="%d"),
+            "손익률": st.column_config.NumberColumn(width=90, format="%.2f%%"),
+            "MDD": st.column_config.NumberColumn(width=90, format="%.2f%%")
+        }
+        
+        def highlight_dataframe(val):
+            if isinstance(val, (int, float)):
+                if val > 0:
+                    color = '#FF6B6B'
+                elif val < 0:
+                    color = '#58A6FF'
+                else:
+                    color = 'inherit'
+                return f'color: {color}; font-weight: bold;'
+            return ''
+
+        # 가상 테이블 포맷팅 매칭 (현재가, 평균단가 등이 빈 행이어도 에러 없이 처리)
+        styled_df = df_raw.style.map(highlight_dataframe, subset=["손익률"]).format({
+            "평가금액": "{:,.0f}",
+            "매입금액": "{:,.0f}",
+            "평균단가": "{:,.0f}",
+            "현재가": "{:,.0f}"
+        })
+        
+        st.dataframe(
+            styled_df, 
+            use_container_width=True, 
+            height=400,
+            column_config=COLUMN_DIMENSIONS
         )
-        fig_tree.update_layout(
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)',
-            font_color='inherit',
-            margin=dict(t=50, b=10, l=10, r=10)
-        )
-        st.plotly_chart(fig_tree, use_container_width=True)
-
-    st.markdown("<hr>", unsafe_allow_html=True)
-
-    # ==========================================
-    # 6. 세부 포트폴리오 원장 데이터 그리드 (테이블 정렬)
-    # ==========================================
-    st.markdown('### 📋 세부 자산 보유 원장')
-    
-    # 3부 데이터 그리드와 동일한 일관적 칼럼 치수 적용
-    COLUMN_DIMENSIONS = {
-        "계좌명": st.column_config.TextColumn(width=120),
-        "종목명": st.column_config.TextColumn(width=200),
-        "티커": st.column_config.TextColumn(width=100),
-        "보유수량": st.column_config.NumberColumn(width=90, format="%d"),
-        "평균단가": st.column_config.NumberColumn(width=100, format="%d"),
-        "현재가": st.column_config.NumberColumn(width=100, format="%d"),
-        "매입금액": st.column_config.NumberColumn(width=110, format="%d"),
-        "평가금액": st.column_config.NumberColumn(width=110, format="%d"),
-        "손익률": st.column_config.NumberColumn(width=90, format="%.2f%%"),
-        "MDD": st.column_config.NumberColumn(width=90, format="%.2f%%")
-    }
-    
-    # 수익/하락에 따른 컬러링 포맷 적용
-    def highlight_dataframe(val):
-        if isinstance(val, (int, float)):
-            if val > 0:
-                color = '#FF6B6B'
-            elif val < 0:
-                color = '#58A6FF'
-            else:
-                color = 'inherit'
-            return f'color: {color}; font-weight: bold;'
-        return ''
-
-    # 가상 테이블 포맷팅 매칭
-    styled_df = df_raw.style.map(highlight_dataframe, subset=["손익률"]).format({
-        "평가금액": "{:,.0f}",
-        "매입금액": "{:,.0f}",
-        "평균단가": "{:,.0f}",
-        "현재가": "{:,.0f}"
-    })
-    
-    st.dataframe(
-        styled_df, 
-        use_container_width=True, 
-        height=400,
-        column_config=COLUMN_DIMENSIONS
-    )
 
 except Exception as e:
-    st.error(f"🚨 데이터 수집 및 연산 실패: {e}")
+    st.error(f"🚨 데이터 가공 및 연산 실패: {e}")
     st.warning("Gems 3.0 Secrets 연동 상태 및 구글 시트 공유 권한 설정을 검증하십시오.")
