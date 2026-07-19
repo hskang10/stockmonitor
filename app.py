@@ -61,8 +61,10 @@ kospi_auto_enabled = st.sidebar.checkbox("KOSPI 자동매수 활성화", value=F
 # ==========================================
 @st.cache_data(ttl=300)
 def fetch_and_calculate_indicators(name, ticker):
-    # 최소 1년(252일) + 200일 이동평균 계산을 위해 3년치 데이터 확보
-    df = yf.download(ticker, period="3y", progress=False)
+    # [교정 완료] yf.download 대신 yf.Ticker().history() 사용으로 다중 인덱스(MultiIndex) 충돌 원천 차단
+    t = yf.Ticker(ticker)
+    df = t.history(period="3y")
+    
     if df.empty or len(df) < 252:
         return {"상태": "INSUFFICIENT_DATA"}
     
@@ -76,6 +78,7 @@ def fetch_and_calculate_indicators(name, ticker):
     df['MA60'] = df['Close'].rolling(60).mean()
     df['MA200'] = df['Close'].rolling(200).mean()
     
+    # 이제 df['Close']가 순수 1차원 데이터이므로 ValueError 연산 충돌이 발생하지 않음
     df['Disp20'] = (df['Close'] / df['MA20']) * 100
     df['Disp60'] = (df['Close'] / df['MA60']) * 100
     df['Disp200'] = (df['Close'] / df['MA200']) * 100
