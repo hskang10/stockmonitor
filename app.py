@@ -451,7 +451,16 @@ def _parse_bls(payload: dict[str, Any]) -> dict[str, dict[str, float]]:
             if not period.startswith("M") or period == "M13":
                 continue
             key = f"{int(item['year']):04d}-{int(period[1:]):02d}"
-            values[key] = float(item["value"])
+            value = item.get("value")
+
+# 숫자가 아닌 값은 건너뛴다.
+if value in (None, "", "-"):
+    continue
+
+try:
+    values[key] = float(value)
+except ValueError:
+    continue
         result[series["seriesID"]] = values
     return result
 
