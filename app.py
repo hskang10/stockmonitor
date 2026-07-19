@@ -481,6 +481,7 @@ def fetch_bls_indexes(reference_period: str, registration_key: str | None) -> di
         headers={"Content-Type": "application/json"},
         timeout=30,
     )
+    st.json(response.json())
     response.raise_for_status()
     return _parse_bls(response.json())
 
