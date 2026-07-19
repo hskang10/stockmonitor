@@ -444,25 +444,31 @@ def _parse_bls(payload: dict[str, Any]) -> dict[str, dict[str, float]]:
         raise RuntimeError(f"BLS API 요청 실패: {messages}")
 
     result: dict[str, dict[str, float]] = {}
+
     for series in payload.get("Results", {}).get("series", []):
         values: dict[str, float] = {}
+
         for item in series.get("data", []):
             period = item.get("period", "")
             if not period.startswith("M") or period == "M13":
                 continue
+
             key = f"{int(item['year']):04d}-{int(period[1:]):02d}"
             value = item.get("value")
 
-# 숫자가 아닌 값은 건너뛴다.
             if value in (None, "", "-"):
-               continue
+                continue
 
             try:
-               values[key] = float(value)
+                values[key] = float(value)
             except ValueError:
                 continue
-            result[series["seriesID"]] = values
-            return result
+
+        # ← for item 루프가 끝난 후 저장
+        result[series["seriesID"]] = values
+
+    # ← 모든 series 처리가 끝난 후 반환
+    return result
 
 
 def fetch_bls_indexes(reference_period: str, registration_key: str | None) -> dict[str, dict[str, float]]:
@@ -481,7 +487,6 @@ def fetch_bls_indexes(reference_period: str, registration_key: str | None) -> di
         headers={"Content-Type": "application/json"},
         timeout=30,
     )
-    st.json(response.json())
     response.raise_for_status()
     return _parse_bls(response.json())
 
