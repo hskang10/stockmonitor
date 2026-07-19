@@ -2,413 +2,310 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import requests
+from datetime import datetime, timedelta
 
 # ==========================================
-# 1. 페이지 테마 및 하이엔드 다크웹 스타일 시트
+# 1. 페이지 및 스타일 최적화 설정
 # ==========================================
 st.set_page_config(
-    page_title="Gems 3.0 Master Monitor", 
+    page_title="Gems 3.0 Market Entry Matrix", 
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# 고급 핀테크 대시보드 맞춤형 CSS 주입
 st.markdown("""
     <style>
-    /* 여백 극대화 및 배경 세팅 */
-    .block-container {
-        padding-top: 1.5rem !important;
-        padding-bottom: 1rem !important;
-    }
+    .block-container { padding-top: 1.5rem !important; padding-bottom: 1rem !important; }
+    .main-title { font-size: 1.8rem !important; font-weight: 800 !important; letter-spacing: -0.05rem; }
     
-    /* 타이틀 및 서브 타이틀 그라데이션 */
-    .main-title {
-        font-size: 2.1rem !important;
-        font-weight: 900 !important;
-        letter-spacing: -0.07rem;
-        background: linear-gradient(135deg, #00FFCC 0%, #0077FF 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 0px !important;
-    }
+    /* 18. 색상 규칙 적용을 위한 CSS 클래스 */
+    .card-score-01 { background: rgba(128,128,128,0.05); }
+    .card-score-2 { background: rgba(241,196,15,0.1); }
+    .card-score-3 { background: rgba(230,126,34,0.1); }
+    .card-score-4 { background: rgba(231,76,60,0.1); }
     
-    /* 네온 효과 스타일드 미니멀 센서 카드 */
-    .neon-sensor-card {
-        background: rgba(16, 24, 48, 0.7);
-        border: 1px solid rgba(0, 255, 204, 0.15);
-        border-radius: 12px;
-        padding: 16px;
-        box-shadow: 0 4px 20px rgba(0, 255, 204, 0.05);
-        margin-bottom: 12px;
-        transition: all 0.3s ease;
-    }
-    .neon-sensor-card:hover {
-        border-color: rgba(0, 255, 204, 0.5);
-        transform: translateY(-2px);
-    }
+    .border-trend-up { border: 2px solid #2ECC71; }
+    .border-trend-down { border: 2px solid #E74C3C; }
     
-    /* 시그널 디스플레이 전용 그리드 카드 */
-    .signal-card {
-        background: rgba(20, 25, 40, 0.85);
-        border-radius: 12px;
-        padding: 18px;
-        border-left: 5px solid #95A5A6;
-        box-shadow: 0 8px 16px rgba(0,0,0,0.2);
-        margin-bottom: 10px;
-    }
-    .signal-card-buy { border-left-color: #2ECC71 !important; box-shadow: 0 4px 15px rgba(46, 204, 113, 0.15); }
-    .signal-card-lock { border-left-color: #E67E22 !important; box-shadow: 0 4px 15px rgba(230, 126, 34, 0.15); }
-    .signal-card-hold { border-left-color: #7F8C8D !important; }
+    .status-badge { padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 0.8rem; }
+    .metric-table { font-size: 0.85rem; }
     
-    /* 이쁘게 렌더링된 배지 */
-    .status-badge {
-        font-size: 0.75rem;
-        font-weight: 800;
-        padding: 4px 10px;
-        border-radius: 20px;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-    .badge-buy { background: rgba(46, 204, 113, 0.2); color: #2ECC71; }
-    .badge-lock { background: rgba(230, 126, 34, 0.2); color: #E67E22; }
-    .badge-hold { background: rgba(127, 140, 141, 0.2); color: #95A5A6; }
-
-    /* 대시보드 경계선 */
-    hr {
-        margin: 1.2rem 0 !important;
-        border: 0;
-        height: 1px;
-        background: linear-gradient(to right, rgba(0,119,255,0), rgba(0,255,204,0.3), rgba(0,119,255,0));
-    }
+    hr { margin: 1.2rem 0 !important; border: 0; height: 1px; background: linear-gradient(to right, rgba(128,128,128,0), rgba(128,128,128,0.3), rgba(128,128,128,0)); }
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<h1 class="main-title">🛡️ Gems 3.0 글로벌 자산군 통합 관제 시스템</h1>', unsafe_allow_html=True)
-st.caption("Gems 3.0 Real-time Disparity Multi-Timeframe & RSI Matrix Terminal")
+st.markdown('<h1 class="main-title">🛡️ Gems 3.0 글로벌 지수 과매도 진입 대시보드</h1>', unsafe_allow_html=True)
+st.caption("SYSTEM_STATUS = CONDITIONALLY_APPROVED | 用途: CASH_DEPLOYMENT_TIMING_ASSISTANT")
 
 # ==========================================
-# 2. 13대 마스터 자산군 매핑
+# 2. 마스터 자산 매핑 및 환경 변수
 # ==========================================
-TARGET_ASSETS = {
-    "변동성지수": {
-        "CBOE VIX": "^VIX",
-        "CBOE SKEW": "^SKEW"
-    },
-    "주요지수": {
-        "S&P 500": "^GSPC",
-        "나스닥 100": "^NDX",
-        "인도 니프티 50": "^NSEI",
-        "코스피": "^KS11",
-        "필라델피아 반도체": "^SOX"
-    },
-    "미국국채금리": {
-        "미국 10년 국채금리": "^TNX",
-        "미국 30년 국채금리": "^TYX"
-    },
-    "통화": {
-        "달러 인덱스": "DX-Y.NYB",
-        "원/달러 환율": "KRW=X"
-    },
-    "기타 매크로": {
-        "국제 금 선물": "GC=F",
-        "WTI 원유 선물": "CL=F"
-    }
+INDEX_MAP = {
+    "S&P 500": "^GSPC",
+    "Nasdaq-100": "^NDX",
+    "Nifty 50": "^NSEI",
+    "KOSPI": "^KS11"
 }
 
+# 시뮬레이션을 위한 사이드바 파라미터 (DB 대체용)
+st.sidebar.header("⚙️ 14. 현금 및 사이클 상태 주입")
+st.sidebar.caption("실제 운용 시 데이터베이스 상태값과 연동됩니다.")
+sim_cash_ratio = st.sidebar.slider("현재 가용 현금비중 (CashRatio)", 0.0, 1.0, 1.0, 0.05)
+sim_days_since_buy = st.sidebar.number_input("마지막 매수 후 경과일 (DaysSinceLastBuy)", 0, 200, 15)
+sim_cycle_invested = st.sidebar.number_input("현재 사이클 누적 투입비중 (%)", 0, 100, 0)
+sim_last_score = st.sidebar.slider("마지막 진입 점수", -1, 4, -1)
+kospi_auto_enabled = st.sidebar.checkbox("KOSPI 자동매수 활성화", value=False)
+
 # ==========================================
-# 3. 데이터 병렬 동기화 최적화 (캐싱 레이어 추가)
+# 3. 데이터 로딩 및 지표 연산 엔진
 # ==========================================
 @st.cache_data(ttl=300)
-def fetch_asset_history(ticker):
-    try:
-        t = yf.Ticker(ticker)
-        df = t.history(period="1y")
-        return df
-    except Exception:
-        return pd.DataFrame()
-
-@st.cache_data(ttl=300)
-def get_realtime_cnn_fg():
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-    }
-    url = 'https://production.dataviz.cnn.io/index/fearandgreed/graphdata'
-    try:
-        response = requests.get(url, headers=headers, timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            fng_current = data.get('fear_and_greed', {})
-            raw_score = float(fng_current.get('score', 50.0))
-            rating = fng_current.get('rating', 'NEUTRAL').upper()
-            return round(raw_score), rating
-    except Exception:
-        pass
-    return 50, "NEUTRAL (ERROR)"
-
-def calculate_master_metrics(df):
-    if df.empty or len(df) < 200:
-        return None
+def fetch_and_calculate_indicators(name, ticker):
+    # 최소 1년(252일) + 200일 이동평균 계산을 위해 3년치 데이터 확보
+    df = yf.download(ticker, period="3y", progress=False)
+    if df.empty or len(df) < 252:
+        return {"상태": "INSUFFICIENT_DATA"}
     
-    current_price = df['Close'].iloc[-1]
-    previous_price = df['Close'].iloc[-2]
-    daily_return = ((current_price - previous_price) / previous_price) * 100
+    df = df.copy()
+    # 4.1 기본 데이터 무결성 정렬
+    df = df[~df.index.duplicated(keep='last')].sort_index()
     
-    periods = [20, 60, 120, 200]
-    disparities = {}
-    for p in periods:
-        ma = df['Close'].rolling(window=p).mean().iloc[-1]
-        disparities[f"{p}일 이격도"] = round((current_price / ma) * 100, 1)
+    # 5. 기술적 지표 계산
+    df['Ret'] = df['Close'].pct_change()
+    df['MA20'] = df['Close'].rolling(20).mean()
+    df['MA60'] = df['Close'].rolling(60).mean()
+    df['MA200'] = df['Close'].rolling(200).mean()
+    
+    df['Disp20'] = (df['Close'] / df['MA20']) * 100
+    df['Disp60'] = (df['Close'] / df['MA60']) * 100
+    df['Disp200'] = (df['Close'] / df['MA200']) * 100
     
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
     rs = gain / (loss + 1e-9)
-    rsi_14 = 100 - (100 / (1 + rs))
-    current_rsi = rsi_14.iloc[-1]
+    df['RSI14'] = 100 - (100 / (1 + rs))
     
+    # 6. 최근 1년 백분위 임계값 (미래정보 방지를 위해 shift(1) 적용)
+    df['D20_Q20'] = df['Disp20'].shift(1).rolling(252).quantile(0.20)
+    df['D60_Q20'] = df['Disp60'].shift(1).rolling(252).quantile(0.20)
+    df['D200_Q25'] = df['Disp200'].shift(1).rolling(252).quantile(0.25)
+    
+    # 8. 장기 추세 필터
+    df['MA200_Slope20'] = (df['MA200'] / df['MA200'].shift(20)) - 1
+    df['TrendState'] = np.where(df['MA200_Slope20'] > 0, 'TREND_UP', 'TREND_DOWN')
+    
+    curr = df.iloc[-1].copy()
+    prev = df.iloc[-2].copy()
+    
+    # 7. 과매도 점수
+    p20 = 1 if curr['Disp20'] <= curr['D20_Q20'] else 0
+    p60 = 1 if curr['Disp60'] <= curr['D60_Q20'] else 0
+    p200 = 1 if curr['Disp200'] <= curr['D200_Q25'] else 0
+    prsi = 1 if curr['RSI14'] <= 35 else 0
+    
+    score = p20 + p60 + p200 + prsi
+    
+    # 반등 확인 조건 (하락 추세용)
+    reversal_confirmed = (curr['RSI14'] > prev['RSI14']) and \
+                         (curr['Close'] > curr['MA20']) and \
+                         (curr['Close'] > prev['Close'])
+                         
+    # 4.2 데이터 상태 판정
+    data_status = "DATA_VALID"
+    if abs(curr['Ret']) >= 0.10:
+        data_status = "DATA_INVALID" if name == "KOSPI" else "DATA_WARNING"
+        
     return {
-        "현재 수치": round(current_price, 2),
-        "전일대비 등락": round(daily_return, 2),
-        **disparities,
-        "RSI (14일)": round(current_rsi, 2)
+        "IndexCode": name,
+        "Date": df.index[-1].strftime("%Y-%m-%d"),
+        "Close": float(curr['Close']),
+        "Ret": float(curr['Ret']) * 100,
+        "MA20": float(curr['MA20']),
+        "MA60": float(curr['MA60']),
+        "MA200": float(curr['MA200']),
+        "Disp20": float(curr['Disp20']),
+        "Disp60": float(curr['Disp60']),
+        "Disp200": float(curr['Disp200']),
+        "RSI14": float(curr['RSI14']),
+        "D20_Q20": float(curr['D20_Q20']),
+        "D60_Q20": float(curr['D60_Q20']),
+        "D200_Q25": float(curr['D200_Q25']),
+        "P20": p20,
+        "P60": p60,
+        "P200": p200,
+        "PRSI": prsi,
+        "OversoldScore": int(score),
+        "MA200_Slope20": float(curr['MA200_Slope20']) * 100,
+        "TrendState": str(curr['TrendState']),
+        "DataStatus": data_status,
+        "ReversalConfirmed": reversal_confirmed
     }
 
 # ==========================================
-# 4. 수동 및 스마트 캘리브레이션 (사이드바)
+# 4. 권장 주문 비중 결정 알고리즘 (사양서 16항)
 # ==========================================
-st.sidebar.markdown("### ⚙️ 스마트 캘리브레이션")
-forward_pe = st.sidebar.slider("S&P 500 Forward P/E", 15.0, 25.0, 21.2, 0.1)
-st.sidebar.info("Forward P/E가 22.0 초과 시 미국 자산 진입은 고평가 경보로 강제 LOCK-UP 상태가 됩니다.")
-
-# ==========================================
-# 5. 핵심 연산 인프라 기동
-# ==========================================
-with st.spinner("⏳ 실시간 데이터 인프라 실시간 동기화 중..."):
-    cnn_fg, cnn_rating = get_realtime_cnn_fg()
+def determine_entry(score, trend, index_code, cash_ratio, cycle_invested_pct, 
+                    last_purchased_score, days_since_last_buy, data_status, 
+                    reversal_confirmed, kospi_auto):
     
-    category_tables = {}
-    for category, assets in TARGET_ASSETS.items():
-        rows = []
-        for name, ticker in assets.items():
-            h = fetch_asset_history(ticker)
-            metrics = calculate_master_metrics(h)
-            if metrics:
-                metrics["지수/지표명"] = name
-                rows.append(metrics)
+    if index_code == "KOSPI" and not kospi_auto:
+        return "AUTOTRADE_DISABLED", 0, "KOSPI 데이터 검증 전 자동매수 금지", False
         
-        if rows:
-            df_cat = pd.DataFrame(rows)
-            cols_order = ["지수/지표명", "현재 수치", "전일대비 등락", "20일 이격도", "60일 이격도", "120일 이격도", "200일 이격도", "RSI (14일)"]
-            category_tables[category] = df_cat[cols_order].set_index("지수/지표명")
+    if data_status == "DATA_INVALID":
+        return "DATA_INVALID", 0, "데이터 무효 판정으로 주문 차단", False
 
-# 안정적인 계산값 유도
-vix_val = float(category_tables.get("변동성지수", pd.DataFrame()).loc["CBOE VIX", "현재 수치"]) if "CBOE VIX" in category_tables.get("변동성지수", pd.DataFrame()).index else 15.0
-usdkrw_val = float(category_tables.get("통화", pd.DataFrame()).loc["원/달러 환율", "현재 수치"]) if "원/달러 환율" in category_tables.get("통화", pd.DataFrame()).index else 1300.0
+    if cash_ratio <= 0.05:
+        return "CASH_LOCK", 0, "가용 현금 부족 (5% 이하)", False
+
+    if score <= 1:
+        return "NO_SIGNAL", 0, "과매도 점수 1점 이하 (정상 궤도)", False
+
+    if score <= last_purchased_score:
+        return "SAME_LEVEL_LOCK", 0, f"동일 점수({score}점) 재진입 금지 규칙 작동", False
+
+    if days_since_last_buy < 10:
+        return "COOLDOWN", 0, f"최소 쿨다운 미달 (잔여 {10 - days_since_last_buy}일)", False
+
+    is_kospi = (index_code == "KOSPI")
+
+    if trend == "TREND_UP":
+        cycle_limit = 15 if is_kospi else 30
+        if score == 2:
+            buy_pct = 5 if is_kospi else 10
+            action = "RECON"
+            reason = "상승 추세 내 2점 초기 과매도 도달 (정찰 매수)"
+        elif score == 3:
+            buy_pct = 5 if is_kospi else 10
+            action = "MAIN_ENTRY"
+            reason = "상승 추세 내 3점 강한 과매도 도달 (본 매수)"
+        else:
+            buy_pct = 5 if is_kospi else 10
+            action = "EXTREME_ENTRY"
+            reason = "상승 추세 내 4점 극단적 과매도 도달 (리스크 감수 추가 진입)"
+    else:
+        cycle_limit = 5 if is_kospi else 10
+        if score <= 2:
+            return "NO_SIGNAL", 0, "장기 하락 추세 중 2점 이하 관망 유지", False
+            
+        if score == 3 and not reversal_confirmed:
+            return "WAIT_REVERSAL", 0, "하락 추세 3점 도달, 반등 시그널 대기 중", False
+            
+        if score == 3:
+            buy_pct = 5
+            action = "EXTREME_RECON"
+            reason = "하락 추세 3점 도달 및 단기 반등 시그널 확인"
+        else:
+            buy_pct = 5
+            action = "EXTREME_RECON"
+            reason = "하락 추세 4점 도달, 제한적 극단 정찰 매수"
+
+    remaining = cycle_limit - cycle_invested_pct
+    buy_pct = min(buy_pct, remaining)
+
+    if buy_pct <= 0:
+        return "CYCLE_LIMIT", 0, f"사이클 최대 한도({cycle_limit}%) 소진", False
+
+    if cash_ratio <= 0.20:
+        buy_pct = min(buy_pct, 10)
+        reason += " (LOW_CASH 룰에 의해 10% 한도 적용)"
+
+    return action, buy_pct, reason, True
 
 # ==========================================
-# 6. 연동 규칙 기반 시그널 감지 백엔드 (수정 반영)
+# 5. 병렬 데이터 수집 및 판정
 # ==========================================
-def evaluate_gems_signals(category_tables, cnn_fg, vix_val, usdkrw_val, forward_pe):
-    signals = {}
-    
-    # 1) S&P 500 (밸류에이션 변수 연동 완료)
-    if "주요지수" in category_tables and "S&P 500" in category_tables["주요지수"].index:
-        spx = category_tables["주요지수"].loc["S&P 500"]
-        spx_disp = spx["200일 이격도"]
-        spx_rsi = spx["RSI (14일)"]
-        trigger_active = spx_disp <= 101.0
-        filter_met = (spx_rsi <= 40.0) or (cnn_fg <= 25)
+master_data = []
+with st.spinner("⏳ 글로벌 지수 원천 데이터 분석 중..."):
+    for name, ticker in INDEX_MAP.items():
+        metrics = fetch_and_calculate_indicators(name, ticker)
+        if metrics.get("상태") == "INSUFFICIENT_DATA":
+            continue
+            
+        action, rec_pct, reason, allowed = determine_entry(
+            metrics['OversoldScore'],
+            metrics['TrendState'],
+            metrics['IndexCode'],
+            sim_cash_ratio,
+            sim_cycle_invested,
+            sim_last_score,
+            sim_days_since_buy,
+            metrics['DataStatus'],
+            metrics['ReversalConfirmed'],
+            kospi_auto_enabled
+        )
         
-        if trigger_active and filter_met:
-            if vix_val > 35.0:
-                signals["S&P 500"] = {"status": "🚨 LOCK-UP", "reason": "VIX > 35 공포 지수 임계치 상회", "class": "signal-card-lock", "badge": "badge-lock", "action": "매수 전면 중단 및 현금 대기"}
-            elif usdkrw_val >= 1400.0:
-                signals["S&P 500"] = {"status": "🚨 LOCK-UP", "reason": "원/달러 환율 1400원선 돌파로 환차손 위험 노출", "class": "signal-card-lock", "badge": "badge-lock", "action": "달러 자산 기계적 진입 강제 보류"}
-            elif forward_pe >= 22.0:
-                signals["S&P 500"] = {"status": "🚨 LOCK-UP", "reason": f"Forward P/E ({forward_pe}) 버블 임계치 상회", "class": "signal-card-lock", "badge": "badge-lock", "action": "고평가 국면 매수 방어 필터 발동"}
-            else:
-                signals["S&P 500"] = {"status": "🟢 BUY", "reason": f"200일선 수렴 ({spx_disp}%) 및 과매도 매칭", "class": "signal-card-buy", "badge": "badge-buy", "action": "적립식 예산의 20% 분할 진입"}
-        else:
-            signals["S&P 500"] = {"status": "HOLD", "reason": "진입 가이드라인 불일치 (과열 상태 보존)", "class": "signal-card-hold", "badge": "badge-hold", "action": "포지션 유지 및 관망 유지"}
-
-    # 2) 나스닥 100
-    if "주요지수" in category_tables and "나스닥 100" in category_tables["주요지수"].index:
-        ndx = category_tables["주요지수"].loc["나스닥 100"]
-        ndx_disp = ndx["200일 이격도"]
-        ndx_rsi = ndx["RSI (14일)"]
-        trigger_active = ndx_disp <= 102.0
-        filter_met = (ndx_rsi <= 38.0) or (cnn_fg <= 25)
-        
-        if trigger_active and filter_met:
-            if vix_val > 35.0:
-                signals["나스닥 100"] = {"status": "🚨 LOCK-UP", "reason": "CBOE VIX 35포인트 상회 위기 국면", "class": "signal-card-lock", "badge": "badge-lock", "action": "매수 보류 및 예비현금 홀딩"}
-            elif usdkrw_val >= 1400.0:
-                signals["나스닥 100"] = {"status": "🚨 LOCK-UP", "reason": "환율 1400원 돌파 버퍼 가동", "class": "signal-card-lock", "badge": "badge-lock", "action": "달러 자산 신규 매수 잠정 보류"}
-            elif forward_pe >= 22.0:
-                signals["나스닥 100"] = {"status": "🚨 LOCK-UP", "reason": f"S&P500 밸류에이션({forward_pe}) 경계치 돌파", "class": "signal-card-lock", "badge": "badge-lock", "action": "밸류에이션 버블 우려로 진입 정지"}
-            else:
-                signals["나스닥 100"] = {"status": "🟢 BUY", "reason": f"200일선 이격 {ndx_disp}% 수렴", "class": "signal-card-buy", "badge": "badge-buy", "action": "적립식 예산의 20% 분할 투입"}
-        else:
-            signals["나스닥 100"] = {"status": "HOLD", "reason": "추세 이탈 전 단계", "class": "signal-card-hold", "badge": "badge-hold", "action": "관망"}
-
-    # 3) 인도 니프티 50 (신흥국 환율 변동성 연동 보완)
-    if "주요지수" in category_tables and "인도 니프티 50" in category_tables["주요지수"].index:
-        nifty = category_tables["주요지수"].loc["인도 니프티 50"]
-        nifty_disp120 = nifty["120일 이격도"]
-        nifty_rsi = nifty["RSI (14일)"]
-        trigger_active = nifty_disp120 <= 101.0
-        filter_met = (nifty_rsi <= 42.0) or (nifty["120일 이격도"] <= 98.0)
-        
-        if trigger_active and filter_met:
-            if usdkrw_val >= 1420.0:
-                signals["인도 니프티 50"] = {"status": "🚨 LOCK-UP", "reason": "달러/원 1420원 돌파로 인한 이머징 캐피탈 런 위험 상승", "class": "signal-card-lock", "badge": "badge-lock", "action": "신흥국 자산 포지션 신규 확대 금지"}
-            else:
-                signals["인도 니프티 50"] = {"status": "🟢 BUY", "reason": f"120일선 이격 하회 {nifty_disp120}%", "class": "signal-card-buy", "badge": "badge-buy", "action": "이머징 배정 자산 20% 진입"}
-        else:
-            signals["인도 니프티 50"] = {"status": "HOLD", "reason": "이머징 성장 추세선 상방 지지 중", "class": "signal-card-hold", "badge": "badge-hold", "action": "기존 지분 홀딩"}
-
-    # 4) 코스피 (환율 필터 연동 보완)
-    if "주요지수" in category_tables and "코스피" in category_tables["주요지수"].index:
-        kospi = category_tables["주요지수"].loc["코스피"]
-        kospi_disp60 = kospi["60일 이격도"]
-        kospi_rsi = kospi["RSI (14일)"]
-        trigger_active = kospi_disp60 < 100.0
-        filter_met = kospi_rsi <= 35.0
-        
-        if trigger_active and filter_met:
-            if usdkrw_val >= 1400.0:
-                signals["코스피"] = {"status": "🚨 LOCK-UP", "reason": "환율 1400원 상회로 인한 환율발 외인 투매 우려 가중", "class": "signal-card-lock", "badge": "badge-lock", "action": "별동대 무기한 진입 중단"}
-            else:
-                signals["코스피"] = {"status": "🟢 BUY", "reason": f"60일선 과매도 바닥 시그널 (RSI {kospi_rsi})", "class": "signal-card-buy", "badge": "badge-buy", "action": "별동대 배정 자산의 40% 공격적 투입"}
-        else:
-            signals["코스피"] = {"status": "HOLD", "reason": "기술적 스윙 진입 대기 단계", "class": "signal-card-hold", "badge": "badge-hold", "action": "대기 및 주시"}
-
-    # 5) 미국 30년 국채금리
-    if "미국국채금리" in category_tables and "미국 30년 국채금리" in category_tables["미국국채금리"].index:
-        tyx = category_tables["미국국채금리"].loc["미국 30년 국채금리"]
-        tyx_disp120 = tyx["120일 이격도"]
-        tyx_rsi = tyx["RSI (14일)"]
-        trigger_active = tyx_disp120 >= 105.0
-        filter_met = tyx_rsi >= 65.0
-        
-        if trigger_active and filter_met:
-            signals["미국 30년 국채금리"] = {"status": "🟢 BUY", "reason": f"금리 일시 오버슈팅 (RSI {tyx_rsi})", "class": "signal-card-buy", "badge": "badge-buy", "action": "국채 포트폴리오 30% 매수 단행"}
-        else:
-            signals["미국 30년 국채금리"] = {"status": "HOLD", "reason": "금리 레벨 추세 범위 내 유지", "class": "signal-card-hold", "badge": "badge-hold", "action": "관망"}
-
-    return signals
-
-gems_signals = evaluate_gems_signals(category_tables, cnn_fg, vix_val, usdkrw_val, forward_pe)
+        metrics['ActionCode'] = action
+        metrics['RecommendedCashPct'] = rec_pct
+        metrics['Reason'] = reason
+        metrics['OrderAllowed'] = allowed
+        master_data.append(metrics)
 
 # ==========================================
-# 7. 최상단 레이아웃 분할: 3(계계 계측판) : 7(네온 시그널 카드)
+# 6. [대시보드 UI 1부] 전체 시장 요약 카드
 # ==========================================
-col_sensor, col_signal = st.columns([3, 7])
+st.markdown("### ⚡ 17.1 전체 시장 요약 카드 (진입 시그널)")
 
-# --- 좌측 열: 1부 계기판형 마스터 센서 보드 ---
-with col_sensor:
-    st.markdown('<p style="font-size:1.15rem; font-weight:800; margin-bottom:0.8rem; color:#00FFCC;">📊 1부. 매크로 코어 센서</p>', unsafe_allow_html=True)
-    
-    # 공포/탐욕 네온 스코어 컬러링
-    fng_color = "#FF3366" if cnn_fg <= 30 else ("#FF9900" if cnn_fg <= 50 else "#00FFCC")
-    vix_badge_col = "#FF3366" if vix_val >= 35.0 else ("#FF9900" if vix_val >= 25.0 else "#00FFCC")
-    krw_badge_col = "#FF3366" if usdkrw_val >= 1400.0 else ("#00FFCC")
-
-    st.markdown(f"""
-        <div class="neon-sensor-card">
-            <div style="font-size:0.85rem; font-weight:600; opacity:0.6; margin-bottom: 4px;">CNN Fear & Greed</div>
-            <div style="display:flex; justify-content:space-between; align-items:flex-end;">
-                <span style="font-size:1.8rem; font-weight:900; color:{fng_color};">{cnn_fg}<span style="font-size:1rem; font-weight:normal; opacity:0.6;"> pts</span></span>
-                <span style="font-size:0.8rem; font-weight:800; padding:2px 8px; border-radius:10px; background:rgba(255,255,255,0.05); color:{fng_color}">{cnn_rating}</span>
-            </div>
-        </div>
-        <div class="neon-sensor-card">
-            <div style="font-size:0.85rem; font-weight:600; opacity:0.6; margin-bottom: 4px;">CBOE VIX Index</div>
-            <div style="display:flex; justify-content:space-between; align-items:flex-end;">
-                <span style="font-size:1.8rem; font-weight:900; color:{vix_badge_col};">{vix_val:.2f}<span style="font-size:1rem; font-weight:normal; opacity:0.6;"> pts</span></span>
-                <span style="font-size:0.8rem; font-weight:800; padding:2px 8px; border-radius:10px; background:rgba(255,255,255,0.05); color:{vix_badge_col}">RISK BUFFER</span>
-            </div>
-        </div>
-        <div class="neon-sensor-card">
-            <div style="font-size:0.85rem; font-weight:600; opacity:0.6; margin-bottom: 4px;">원/달러 실시간 환율</div>
-            <div style="display:flex; justify-content:space-between; align-items:flex-end;">
-                <span style="font-size:1.8rem; font-weight:900; color:{krw_badge_col};">{usdkrw_val:,.1f}<span style="font-size:1rem; font-weight:normal; opacity:0.6;"> 원</span></span>
-                <span style="font-size:0.8rem; font-weight:800; padding:2px 8px; border-radius:10px; background:rgba(255,255,255,0.05); color:{krw_badge_col}">FX LIMIT 1400</span>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-
-# --- 우측 열: 2부 네온 스타일드 실시간 통합 시그널 보드 (스크롤 완전 탈피) ---
-with col_signal:
-    st.markdown('<p style="font-size:1.15rem; font-weight:800; margin-bottom:0.8rem; color:#0077FF;">⚡ 2부. Gems 3.0 실시간 기계적 대응 판정</p>', unsafe_allow_html=True)
-    
-    # 2부 화면 높이 조절 및 시각적 배치
-    for asset, sig in gems_signals.items():
+cols = st.columns(4)
+for i, m in enumerate(master_data):
+    with cols[i]:
+        # 색상 규칙 (18항)
+        score = m['OversoldScore']
+        bg_class = f"card-score-{score}" if score > 1 else "card-score-01"
+        if score == 4: bg_class = "card-score-4" # 4점은 붉은색
+        
+        border_class = "border-trend-up" if m['TrendState'] == 'TREND_UP' else "border-trend-down"
+        
+        # 권장 매수 렌더링
+        act_color = "#2ECC71" if m['OrderAllowed'] else "#95A5A6"
+        if m['DataStatus'] != "DATA_VALID": act_color = "#9B59B6" # 보라색 경고
+        if m['ActionCode'] == "AUTOTRADE_DISABLED": act_color = "#34495E" # 진회색
+        
         st.markdown(f"""
-            <div class="signal-card {sig['class']}">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom:6px;">
-                    <span style="font-size: 1.05rem; font-weight: 800; color: #FFFFFF;">{asset}</span>
-                    <span class="status-badge {sig['badge']}">{sig['status']}</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.88rem;">
-                    <span style="opacity: 0.7; color: #BDC3C7;"><strong style="color:#FFF;">판정 근거:</strong> {sig['reason']}</span>
-                    <span style="font-weight: 700; color: #FFF; background: rgba(0,119,255,0.15); padding: 3px 8px; border-radius: 6px; border: 1px solid rgba(0,119,255,0.2);">🚀 {sig['action']}</span>
-                </div>
+        <div style="border-radius: 10px; padding: 15px; margin-bottom: 10px; {border_class}" class="{bg_class}">
+            <h4 style="margin:0; font-weight:800;">{m['IndexCode']}</h4>
+            <div style="font-size:0.8rem; opacity:0.7;">{m['Date']} | {m['Close']:,.2f} ({m['Ret']:+.2f}%)</div>
+            <hr style="margin: 10px 0 !important;">
+            <div style="display:flex; justify-content: space-between; margin-bottom: 5px;">
+                <span style="font-size:0.9rem; font-weight:700;">과매도 점수</span>
+                <strong style="font-size:1.1rem;">{score} 점</strong>
             </div>
+            <div style="display:flex; justify-content: space-between; margin-bottom: 10px;">
+                <span style="font-size:0.9rem; font-weight:700;">장기 추세</span>
+                <span>{'🟢 상승' if m['TrendState']=='TREND_UP' else '🔴 하락'}</span>
+            </div>
+            <div style="background:{act_color}; color:white; text-align:center; padding:5px; border-radius:5px; font-weight:bold; font-size:0.9rem;">
+                {m['ActionCode']} | 현금 {m['RecommendedCashPct']}%
+            </div>
+            <div style="font-size:0.75rem; margin-top:8px; line-height:1.3; opacity:0.8; height: 50px; overflow:hidden;">
+                <b>근거:</b> {m['Reason']}
+            </div>
+        </div>
         """, unsafe_allow_html=True)
 
-st.markdown("<hr>", unsafe_allow_html=True)
-
 # ==========================================
-# 8. [대시보드 3부] 13대 지수 카테고리 매트릭스 테이블
+# 7. [대시보드 UI 2/3부] 상세 데이터 테이블
 # ==========================================
-st.markdown('<p style="font-size:1.25rem; font-weight:800; margin-bottom:0.8rem; color:#FFFFFF;">📋 3부. 글로벌 자산군 다중 이격도 & 과열도 매트릭스 명세</p>', unsafe_allow_html=True)
-
-def highlight_returns(val):
-    if isinstance(val, (int, float)):
-        if val > 0:
-            color = '#FF4444'
-        elif val < 0:
-            color = '#3399FF'
-        else:
-            color = 'inherit'
-        return f'color: {color}; font-weight: bold;'
-    return ''
-
-# 3부 통일감 유지를 위한 명세서 규격 일치화
-COLUMN_DIMENSIONS = {
-    "지수/지표명": st.column_config.TextColumn(width=160),
-    "현재 수치": st.column_config.NumberColumn(width=110),
-    "전일대비 등락": st.column_config.TextColumn(width=100),
-    "20일 이격도": st.column_config.TextColumn(width=100),
-    "60일 이격도": st.column_config.TextColumn(width=100),
-    "120일 이격도": st.column_config.TextColumn(width=100),
-    "200일 이격도": st.column_config.TextColumn(width=100),
-    "RSI (14일)": st.column_config.TextColumn(width=100)
-}
-
-# 탭을 활용하여 3부를 더 세련되고 넓게 분할 배치
-tabs = st.tabs([f"📊 {cat}" for cat in category_tables.keys()])
-
-for tab, (category, table) in zip(tabs, category_tables.items()):
-    with tab:
-        styled_table = table.style.map(highlight_returns, subset=["전일대비 등락"]).format({
-            "전일대비 등락": "{:+.2f}%", 
-            "현재 수치": "{:,.2f}",
-            "20일 이격도": "{:.1f}%",
-            "60일 이격도": "{:.1f}%",
-            "120일 이격도": "{:.1f}%",
-            "200일 이격도": "{:.1f}%",
-            "RSI (14일)": "{:.2f}"
-        })
-        
-        st.dataframe(
-            styled_table, 
-            use_container_width=True,
-            column_config=COLUMN_DIMENSIONS
-        )
-
 st.markdown("---")
-st.caption(f"**[실시간 검증 정보 완료]** 연동 데이터 소스: Yahoo Finance API & CNN Business API 교차 데이터 동기화 완료 | "
-           f"데이터 기준 시각: {pd.Timestamp.now(tz='Asia/Seoul').strftime('%Y-%m-%d %H:%M:%S')} KST")
+st.markdown("### 📋 17.2 & 17.3 지표 상세 및 사이클 팩트체크")
+
+if master_data:
+    df_display = pd.DataFrame(master_data)
+    
+    # 필요한 열만 추출 및 재정렬
+    display_cols = [
+        "IndexCode", "Close", "MA200_Slope20", "TrendState", "OversoldScore", 
+        "Disp20", "D20_Q20", "Disp60", "D60_Q20", "Disp200", "D200_Q25", "RSI14",
+        "ActionCode", "DataStatus"
+    ]
+    df_table = df_display[display_cols].copy()
+    
+    # 렌더링 포맷 최적화
+    format_dict = {
+        "Close": "{:,.1f}", "MA200_Slope20": "{:+.2f}%", 
+        "Disp20": "{:.1f}%", "D20_Q20": "{:.1f}%", 
+        "Disp60": "{:.1f}%", "D60_Q20": "{:.1f}%", 
+        "Disp200": "{:.1f}%", "D200_Q25": "{:.1f}%", "RSI14": "{:.1f}"
+    }
+    
+    st.dataframe(df_table.style.format(format_dict), use_container_width=True)
