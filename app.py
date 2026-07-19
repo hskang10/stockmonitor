@@ -454,15 +454,15 @@ def _parse_bls(payload: dict[str, Any]) -> dict[str, dict[str, float]]:
             value = item.get("value")
 
 # 숫자가 아닌 값은 건너뛴다.
-if value in (None, "", "-"):
-    continue
+            if value in (None, "", "-"):
+               continue
 
-try:
-    values[key] = float(value)
-except ValueError:
-    continue
-        result[series["seriesID"]] = values
-    return result
+            try:
+               values[key] = float(value)
+            except ValueError:
+                continue
+            result[series["seriesID"]] = values
+            return result
 
 
 def fetch_bls_indexes(reference_period: str, registration_key: str | None) -> dict[str, dict[str, float]]:
