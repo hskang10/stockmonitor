@@ -94,6 +94,7 @@ FRED_SERIES = {
     "US 10Y": "DGS10",
     "US 30Y": "DGS30",
     "US 10Y Real Yield": "DFII10",
+    "Broad USD": "DTWEXBGS",
     "10Y-2Y Spread": "T10Y2Y",
     "HY OAS": "BAMLH0A0HYM2",
 }
@@ -512,13 +513,10 @@ def rate_condition(m):
 
 
 def rate_fit_score(asset_name, group, m):
-    """자산별 금리 적합도 0~15."""
+    # 0~15 for equities; 0~30 real-rate score for gold. Bonds use bond_duration_score().
     u10, u10p = m.get("us10y"), m.get("us10y_20dago")
-    u30, u30p = m.get("us30y"), m.get("us30y_20dago")
     rr, rrp = m.get("real10y"), m.get("real10y_20dago")
-
     d10 = u10 - u10p if pd.notna(u10) and pd.notna(u10p) else np.nan
-    d30 = u30 - u30p if pd.notna(u30) and pd.notna(u30p) else np.nan
     dr = rr - rrp if pd.notna(rr) and pd.notna(rrp) else np.nan
 
     if group == "Equity":
@@ -536,112 +534,213 @@ def rate_fit_score(asset_name, group, m):
             elif dr >= 0.15: p -= 2
         return int(np.clip(p, 0, 15))
 
-    if group == "Bond":
-        d = d30 if "Long" in asset_name else d10
-        p = 7
-        if pd.notna(d):
-            if d <= -0.30: p += 8
-            elif d <= -0.15: p += 6
-            elif d <= -0.05: p += 3
-            elif d >= 0.30: p -= 7
-            elif d >= 0.15: p -= 5
-            elif d >= 0.05: p -= 2
-        return int(np.clip(p, 0, 15))
-
     if group == "Gold":
-        p = 7
+        p = 15
         if pd.notna(dr):
-            if dr <= -0.20: p += 8
-            elif dr <= -0.10: p += 6
-            elif dr <= -0.03: p += 3
-            elif dr >= 0.20: p -= 7
-            elif dr >= 0.10: p -= 5
-            elif dr >= 0.03: p -= 2
-        elif pd.notna(d10):
-            if d10 <= -0.15: p += 4
-            elif d10 >= 0.15: p -= 4
-        return int(np.clip(p, 0, 15))
+            if dr <= -0.20: p += 15
+            elif dr <= -0.10: p += 11
+            elif dr <= -0.03: p += 6
+            elif dr >= 0.20: p -= 14
+            elif dr >= 0.10: p -= 10
+            elif dr >= 0.03: p -= 5
+        return int(np.clip(p, 0, 30))
 
-    return 7
+    return 0
 
 def macro_fit_score(asset_name, group, macro_state, macro_regime, macro_bias, m):
-    """경기·물가·고용 중심 거시 적합도 0~20. 금리는 별도 점수에서 평가."""
+    # Macro fit: Equity max 25, Bond max 25, Gold max 20.
     if group == "Equity":
-        p = 10
+        p = 13
         if macro_state.get("Growth") == "개선": p += 4
-        elif macro_state.get("Growth") == "둔화": p -= 4
+        elif macro_state.get("Growth") == "둔화": p -= 3
         if macro_state.get("Inflation") == "둔화": p += 3
-        elif macro_state.get("Inflation") == "재가속": p -= 4
+        elif macro_state.get("Inflation") == "재가속": p -= 3
         if macro_state.get("Employment") == "견조": p += 2
         elif macro_state.get("Employment") == "빠른 악화": p -= 5
-        cap = 16 if asset_name in ["KOSPI", "Nifty 50"] else 20
+        if macro_state.get("Financial Conditions") == "완화/안정": p += 3
+        elif macro_state.get("Financial Conditions") == "긴축/스트레스": p -= 3
+        cap = 21 if asset_name in ["KOSPI", "Nifty 50"] else 25
         return int(np.clip(p, 0, cap))
 
     if group == "Bond":
         p = 8
-        if macro_state.get("Inflation") == "둔화": p += 6
-        elif macro_state.get("Inflation") == "재가속": p -= 6
-        if macro_state.get("Growth") == "둔화": p += 4
+        if macro_state.get("Inflation") == "둔화": p += 8
+        elif macro_state.get("Inflation") == "혼조": p += 4
+        elif macro_state.get("Inflation") == "재가속": p -= 7
+        if macro_state.get("Growth") == "둔화": p += 5
+        elif macro_state.get("Growth") == "횡보": p += 2
         elif macro_state.get("Growth") == "개선": p -= 2
-        if macro_state.get("Employment") == "빠른 악화": p += 3
-        if "경착륙" in macro_regime: p += 2
-        return int(np.clip(p, 0, 20))
+        if macro_state.get("Employment") == "완만한 냉각": p += 4
+        elif macro_state.get("Employment") == "빠른 악화": p += 6
+        elif macro_state.get("Employment") == "견조": p += 1
+        return int(np.clip(p, 0, 25))
 
     if group == "Gold":
-        p = 9
+        p = 10
         if "경착륙" in macro_regime: p += 5
         if "스태그플레이션" in macro_regime: p += 6
         if macro_state.get("Inflation") == "재가속": p += 2
+        if macro_state.get("Financial Conditions") == "긴축/스트레스": p += 2
         return int(np.clip(p, 0, 20))
 
     return 10
 
 
+def bond_duration_score(asset_name, row, macro_state, macro_regime, m):
+    # Duration-first Treasury ETF engine, total 100.
+    # 40 duration catalyst + 25 macro backdrop + 15 starting yield + 20 ETF confirmation/value.
+    is_long = "Long" in asset_name
+    y_now = m.get("us30y") if is_long else m.get("us10y")
+    y_1m = m.get("us30y_20dago") if is_long else m.get("us10y_20dago")
+    y_3m = m.get("us10y_60dago") if not is_long else np.nan
+    y_pct = m.get("us30y_pct_1y") if is_long else m.get("us10y_pct_1y")
+
+    d1 = y_now - y_1m if pd.notna(y_now) and pd.notna(y_1m) else np.nan
+    # For 30Y, use 10Y 3M direction as a macro-duration confirmation when 30Y 60d history is not stored.
+    d3 = (m.get("us10y") - m.get("us10y_60dago")) if is_long and pd.notna(m.get("us10y")) and pd.notna(m.get("us10y_60dago")) else (y_now - y_3m if pd.notna(y_now) and pd.notna(y_3m) else np.nan)
+    d2 = m.get("us2y") - m.get("us2y_20dago") if pd.notna(m.get("us2y")) and pd.notna(m.get("us2y_20dago")) else np.nan
+    dr = m.get("real10y") - m.get("real10y_20dago") if pd.notna(m.get("real10y")) and pd.notna(m.get("real10y_20dago")) else np.nan
+
+    # A. Duration catalyst 0~40: actual long-yield reversal is primary.
+    catalyst = 0
+    if pd.notna(d1):
+        if d1 <= -0.25: catalyst += 18
+        elif d1 <= -0.15: catalyst += 15
+        elif d1 <= -0.07: catalyst += 11
+        elif d1 <= 0.03: catalyst += 7
+        elif d1 <= 0.12: catalyst += 3
+    if pd.notna(d3):
+        if d3 <= -0.35: catalyst += 10
+        elif d3 <= -0.15: catalyst += 8
+        elif d3 <= 0.05: catalyst += 5
+        elif d3 <= 0.20: catalyst += 2
+    if pd.notna(d2):
+        if d2 <= -0.20: catalyst += 7
+        elif d2 <= -0.08: catalyst += 5
+        elif d2 <= 0.03: catalyst += 3
+    if pd.notna(dr):
+        if dr <= -0.12: catalyst += 5
+        elif dr <= -0.03: catalyst += 3
+        elif dr >= 0.15: catalyst -= 3
+    catalyst = int(np.clip(catalyst, 0, 40))
+
+    # B. Macro rate-cut/disinflation backdrop 0~25.
+    macro_pts = macro_fit_score(asset_name, "Bond", macro_state, macro_regime, "", m)
+
+    # C. Starting yield attractiveness 0~15, using 1Y percentile rather than arbitrary absolute yield.
+    if pd.isna(y_pct): yield_pts = 7
+    elif y_pct >= 85: yield_pts = 15
+    elif y_pct >= 70: yield_pts = 13
+    elif y_pct >= 55: yield_pts = 10
+    elif y_pct >= 40: yield_pts = 7
+    elif y_pct >= 25: yield_pts = 4
+    else: yield_pts = 2
+
+    # D. ETF confirmation/value 0~20. Do NOT require MA200 up; that would enter too late.
+    os = row.get("Oversold Score", np.nan)
+    r1m = row.get("1M %", np.nan)
+    r3m = row.get("3M %", np.nan)
+    tech = 4
+    if pd.notna(os): tech += min(int(os) * 2, 8)
+    if pd.notna(r1m):
+        if 0 < r1m <= 6: tech += 6       # early price confirmation
+        elif -4 <= r1m <= 0: tech += 3   # still near lows, acceptable for probe
+        elif r1m > 8: tech -= 2          # chasing after a sharp move
+    if pd.notna(r3m) and r3m > 0: tech += 2
+    tech = int(np.clip(tech, 0, 20))
+
+    score = catalyst + macro_pts + yield_pts + tech
+
+    # Hard risk guardrails: do not call a duration trade 'friendly' while yields/inflation are reaccelerating sharply.
+    if pd.notna(d1) and d1 >= 0.25 and macro_state.get("Inflation") == "재가속":
+        score = min(score, 49)
+    elif pd.notna(d1) and d1 >= 0.15:
+        score = min(score, 59)
+
+    if score >= 70: action, css = "진입 우호", "action-good"
+    elif score >= 55: action, css = "분할 진입", "action-mid"
+    elif score >= 40: action, css = "정찰 / 대기", "action-watch"
+    else: action, css = "대기", "action-wait"
+
+    notes = [f"듀레이션 촉매 {catalyst}/40", f"거시 {macro_pts}/25", f"금리수준 {yield_pts}/15", f"ETF확인 {tech}/20"]
+    if pd.notna(d1): notes.append(f"대상금리 1M {d1:+.2f}%p")
+    if pd.notna(d2): notes.append(f"2Y 1M {d2:+.2f}%p")
+    return {
+        "Entry Score": int(score), "Action": action, "CSS": css,
+        "Price Pts": tech, "Trend Pts": catalyst, "Macro Pts": macro_pts,
+        "Rate Pts": catalyst + yield_pts, "Pullback Pts": tech,
+        "Engine": "Duration",
+        "Reason": " · ".join(notes),
+    }
+
 def entry_decision(row, macro_state, macro_regime, macro_bias, m):
     group, asset_name = row["분류"], row["자산"]
+
+    if group == "Bond":
+        return bond_duration_score(asset_name, row, macro_state, macro_regime, m)
+
     oversold = row.get("Oversold Score", np.nan)
     rsi = row.get("RSI14", np.nan)
     r1m = row.get("1M %", np.nan)
     trend_up = row.get("MA200 Trend") == "상승"
 
-    price_pts = int(round(oversold * 8.75)) if pd.notna(oversold) else 0
-    trend_pts = 20 if trend_up else 5
-    macro_pts = macro_fit_score(asset_name, group, macro_state, macro_regime, macro_bias, m)
-    rate_pts = rate_fit_score(asset_name, group, m)
+    if group == "Equity":
+        # Less restrictive than the old engine: normal uptrends can qualify without being statistically oversold.
+        if pd.isna(oversold): price_pts = 10
+        else: price_pts = {0:10, 1:14, 2:18, 3:22, 4:25}.get(int(oversold), 10)
+        if pd.notna(rsi):
+            if rsi >= 72: price_pts = max(price_pts - 8, 0)
+            elif rsi <= 40: price_pts = min(price_pts + 3, 25)
+        trend_pts = 20 if trend_up else 7
+        macro_pts = macro_fit_score(asset_name, group, macro_state, macro_regime, macro_bias, m)
+        rate_pts = rate_fit_score(asset_name, group, m)
+        if pd.isna(r1m): pullback_pts = 7
+        elif -10 <= r1m <= -2: pullback_pts = 15
+        elif -2 < r1m <= 2: pullback_pts = 11
+        elif -18 <= r1m < -10: pullback_pts = 10
+        elif 2 < r1m <= 6: pullback_pts = 7
+        else: pullback_pts = 3
+        score = price_pts + trend_pts + macro_pts + rate_pts + pullback_pts
+        if pd.notna(rsi) and rsi >= 75: score = min(score, 59)
+        if "경착륙" in macro_regime and macro_state.get("Employment") == "빠른 악화": score = min(score, 59)
+        if score >= 70: action, css = "진입 우호", "action-good"
+        elif score >= 55: action, css = "분할 진입", "action-mid"
+        elif score >= 40: action, css = "정찰 / 대기", "action-watch"
+        else: action, css = "대기", "action-wait"
+        notes = [f"가격 {price_pts}/25", f"추세 {trend_pts}/20", f"거시 {macro_pts}/25", f"금리 {rate_pts}/15", f"눌림 {pullback_pts}/15"]
+        if asset_name == "KOSPI": notes.append("원/달러·외인수급 별도 확인")
+        elif asset_name == "Nifty 50": notes.append("인도금리·루피 별도 확인")
+        return {"Entry Score":int(score), "Action":action, "CSS":css, "Price Pts":price_pts, "Trend Pts":trend_pts,
+                "Macro Pts":macro_pts, "Rate Pts":rate_pts, "Pullback Pts":pullback_pts, "Engine":"Equity", "Reason":" · ".join(notes)}
 
-    if pd.isna(r1m): pullback_pts = 3
-    elif -12 <= r1m <= -2: pullback_pts = 10
-    elif -2 < r1m <= 1.5: pullback_pts = 7
-    elif -20 <= r1m < -12: pullback_pts = 6
-    elif 1.5 < r1m <= 5: pullback_pts = 3
-    else: pullback_pts = 0
+    if group == "Gold":
+        real_pts = rate_fit_score(asset_name, group, m)  # 0~30
+        macro_pts = macro_fit_score(asset_name, group, macro_state, macro_regime, macro_bias, m)  # 0~20
+        usd_now, usd_prev = m.get("broad_usd"), m.get("broad_usd_20dago")
+        if pd.notna(usd_now) and pd.notna(usd_prev):
+            du = (usd_now / usd_prev - 1) * 100
+            if du <= -1.5: usd_pts = 20
+            elif du <= -0.5: usd_pts = 16
+            elif du <= 0.5: usd_pts = 11
+            elif du <= 1.5: usd_pts = 6
+            else: usd_pts = 2
+        else: usd_pts = 10
+        trend_pts = 15 if trend_up else 6
+        if pd.isna(oversold): price_pts = 7
+        else: price_pts = {0:6, 1:8, 2:11, 3:13, 4:15}.get(int(oversold), 7)
+        if pd.notna(rsi) and rsi >= 75: price_pts = max(price_pts - 7, 0)
+        score = real_pts + usd_pts + macro_pts + trend_pts + price_pts
+        if pd.notna(rsi) and rsi >= 78: score = min(score, 59)
+        if score >= 70: action, css = "진입 우호", "action-good"
+        elif score >= 55: action, css = "분할 진입", "action-mid"
+        elif score >= 40: action, css = "정찰 / 대기", "action-watch"
+        else: action, css = "대기", "action-wait"
+        notes = [f"실질금리 {real_pts}/30", f"달러 {usd_pts}/20", f"거시 {macro_pts}/20", f"추세 {trend_pts}/15", f"가격 {price_pts}/15"]
+        return {"Entry Score":int(score), "Action":action, "CSS":css, "Price Pts":price_pts, "Trend Pts":trend_pts,
+                "Macro Pts":macro_pts, "Rate Pts":real_pts, "Pullback Pts":usd_pts, "Engine":"Gold", "Reason":" · ".join(notes)}
 
-    score = price_pts + trend_pts + macro_pts + rate_pts + pullback_pts
-    if pd.notna(rsi) and rsi >= 70: score = min(score, 58)
-    if group == "Equity" and "경착륙" in macro_regime: score = min(score, 58)
-
-    if score >= 75: action, css = "진입 우호", "action-good"
-    elif score >= 60: action, css = "분할 진입", "action-mid"
-    elif score >= 45: action, css = "정찰 / 대기", "action-watch"
-    else: action, css = "대기", "action-wait"
-
-    notes = []
-    if pd.notna(oversold): notes.append(f"과매도 {int(oversold)}/4")
-    notes.append("MA200 상승" if trend_up else "MA200 약세/미확인")
-    if pd.notna(rsi): notes.append(f"RSI {rsi:.0f}")
-    notes.append(f"거시 {macro_pts}/20")
-    notes.append(f"금리 {rate_pts}/15")
-    if asset_name == "KOSPI": notes.append("원/달러·외인수급 별도 확인")
-    elif asset_name == "Nifty 50": notes.append("인도금리·루피 별도 확인")
-
-    return {
-        "Entry Score": int(score), "Action": action, "CSS": css,
-        "Price Pts": price_pts, "Trend Pts": trend_pts, "Macro Pts": macro_pts,
-        "Rate Pts": rate_pts, "Pullback Pts": pullback_pts,
-        "Reason": " · ".join(notes),
-    }
-
-
+    return {"Entry Score":50, "Action":"정찰 / 대기", "CSS":"action-watch", "Price Pts":0, "Trend Pts":0,
+            "Macro Pts":0, "Rate Pts":0, "Pullback Pts":0, "Engine":"Unknown", "Reason":"엔진 확인 필요"}
 
 def status_tone(value, kind="generic"):
     """첫 화면 상태카드 색상: blue=우호, orange=주의/혼조, red=비우호, gray=미확인."""
@@ -807,12 +906,21 @@ dgs2 = fred["US 2Y"]
 dgs10 = fred["US 10Y"]
 dgs30 = fred["US 30Y"]
 real10 = fred["US 10Y Real Yield"]
+broad_usd = fred["Broad USD"]
 hy_oas = fred["HY OAS"]
 spread = fred["10Y-2Y Spread"]
 
 def daily_lookback(s, n=20):
     x = s.dropna()
     return float(x.iloc[-1-n]) if len(x) > n else np.nan
+
+
+def rolling_percentile(s, n=252):
+    x = s.dropna().tail(n)
+    if len(x) < 60:
+        return np.nan
+    now = x.iloc[-1]
+    return float((x <= now).mean() * 100)
 
 m = {
     "core_cpi_yoy": latest_valid(macro_series.get("Core CPI YoY", pd.Series(dtype=float))),
@@ -836,6 +944,10 @@ m = {
     "us30y_20dago": daily_lookback(dgs30, 20),
     "real10y": latest_valid(real10),
     "real10y_20dago": daily_lookback(real10, 20),
+    "us10y_pct_1y": rolling_percentile(dgs10),
+    "us30y_pct_1y": rolling_percentile(dgs30),
+    "broad_usd": latest_valid(broad_usd),
+    "broad_usd_20dago": daily_lookback(broad_usd, 20),
     "hy_oas": latest_valid(hy_oas),
     "hy_oas_20dago": daily_lookback(hy_oas, 20),
 }
@@ -932,9 +1044,9 @@ with tab0:
 
         st.markdown('<div class="section-label">Priority board</div>', unsafe_allow_html=True)
         board = decision_df[[
-            "자산", "Action", "Entry Score", "Oversold Score", "RSI14", "MA200 Trend", "1M %", "Macro Pts", "Rate Pts"
+            "자산", "Action", "Entry Score", "Engine", "Oversold Score", "RSI14", "MA200 Trend", "1M %", "Macro Pts", "Rate Pts"
         ]].copy()
-        board.columns = ["자산", "판정", "진입점수", "과매도", "RSI", "MA200", "1개월", "거시적합", "금리적합"]
+        board.columns = ["자산", "판정", "진입점수", "엔진", "과매도", "RSI", "MA200", "1개월", "거시적합", "금리/듀레이션"]
         board = board.sort_values(["진입점수", "자산"], ascending=[False, True])
 
         st.dataframe(
@@ -947,7 +1059,7 @@ with tab0:
                 "RSI": st.column_config.NumberColumn("RSI", format="%.1f"),
                 "1개월": st.column_config.NumberColumn("1개월", format="%+.1f%%"),
                 "거시적합": st.column_config.ProgressColumn("거시적합", min_value=0, max_value=20, format="%d"),
-                "금리적합": st.column_config.ProgressColumn("금리적합", min_value=0, max_value=15, format="%d"),
+                "금리/듀레이션": st.column_config.NumberColumn("금리/듀레이션", format="%d"),
             },
         )
 
@@ -973,8 +1085,9 @@ with tab0:
             )
 
     st.caption(
-        "진입점수 = 과매도 35 + MA200 추세 20 + 경기·물가·고용 20 + 자산별 금리조건 15 + 최근 1개월 눌림 10. "
-        "RSI≥70 또는 경착륙 국면의 주식은 높은 판정을 제한합니다. KOSPI·Nifty는 미국 거시만으로 완결판정하지 않도록 거시점수 상한을 낮췄습니다."
+        "자산군별 엔진 적용: 주식=가격25+추세20+거시25+금리15+눌림15, "
+        "채권=듀레이션 촉매40+거시25+시작금리15+ETF확인20, 금=실질금리30+달러20+거시20+추세15+가격15. "
+        "공통 판정은 70점 이상 진입 우호, 55~69 분할 진입, 40~54 정찰/대기입니다."
     )
 
 # ============================================================
@@ -1064,10 +1177,12 @@ with tab2:
         c5.metric("1M", f"{r['1M %']:+.1f}%" if pd.notna(r['1M %']) else "N/A")
         c6.metric("1Y 고점대비", f"{r['1Y Drawdown %']:+.1f}%" if pd.notna(r['1Y Drawdown %']) else "N/A")
 
-        st.write(
-            f"**점수 구성:** 가격 {int(r['Price Pts'])}/35 · 추세 {int(r['Trend Pts'])}/20 · "
-            f"거시 {int(r['Macro Pts'])}/20 · 금리 {int(r['Rate Pts'])}/15 · 눌림 {int(r['Pullback Pts'])}/10"
-        )
+        if r.get("Engine") == "Duration":
+            st.write(f"**채권 듀레이션 엔진:** 듀레이션/금리 {int(r['Rate Pts'])} · 거시 {int(r['Macro Pts'])}/25 · ETF확인 {int(r['Price Pts'])}/20")
+        elif r.get("Engine") == "Gold":
+            st.write(f"**금 엔진:** 실질금리 {int(r['Rate Pts'])}/30 · 거시 {int(r['Macro Pts'])}/20 · 추세 {int(r['Trend Pts'])}/15 · 가격 {int(r['Price Pts'])}/15")
+        else:
+            st.write(f"**주식 엔진:** 가격 {int(r['Price Pts'])}/25 · 추세 {int(r['Trend Pts'])}/20 · 거시 {int(r['Macro Pts'])}/25 · 금리 {int(r['Rate Pts'])}/15 · 눌림 {int(r['Pullback Pts'])}/15")
         st.caption(r["Reason"])
 
         ticker = r["Ticker"]
