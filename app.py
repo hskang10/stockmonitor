@@ -23,6 +23,19 @@ st.markdown(
     <style>
     .block-container {padding-top: 1.15rem; padding-bottom: 2rem; max-width: 1550px;}
     div[data-testid="stMetric"] {border:1px solid rgba(128,128,128,.18); border-radius:12px; padding:9px 12px;}
+    /* Compact metric values: long Market regime text should wrap instead of clipping. */
+    div[data-testid="stMetricValue"] {
+        font-size:1.05rem !important;
+        line-height:1.22 !important;
+        white-space:normal !important;
+        overflow-wrap:anywhere !important;
+        word-break:keep-all !important;
+    }
+    div[data-testid="stMetricValue"] > div {
+        font-size:inherit !important;
+        line-height:inherit !important;
+        white-space:normal !important;
+    }
     .section-label {font-size:.80rem; font-weight:750; letter-spacing:.05em; color:#7a7a7a; margin:.55rem 0 .35rem 0; text-transform:uppercase;}
     .asset-card {border:1px solid rgba(128,128,128,.20); border-radius:15px; padding:14px 15px 12px 15px; min-height:190px; background:rgba(128,128,128,.025); margin-bottom:8px;}
     .asset-title {font-size:1rem; font-weight:780; margin-bottom:1px;}
