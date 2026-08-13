@@ -13,6 +13,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Repair patch script quoting
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('tools/patch_visual_status.py')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace("return f'''<div class=\"status-card {tone}\"><div class=\"status-label\">{label}</div><div class=\"status-value\">{value}</div>{sub_html}</div>'''", "return f\"\"\"<div class=\\\"status-card {tone}\\\"><div class=\\\"status-label\\\">{label}</div><div class=\\\"status-value\\\">{value}</div>{sub_html}</div>\"\"\"")
+          p.write_text(s, encoding='utf-8')
+          PY
       - name: Apply visual status patch
         run: python tools/patch_visual_status.py
       - name: Validate syntax
