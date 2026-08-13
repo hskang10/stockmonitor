@@ -592,12 +592,12 @@ def bond_duration_score(asset_name, row, macro_state, macro_regime, m):
     is_long = "Long" in asset_name
     y_now = m.get("us30y") if is_long else m.get("us10y")
     y_1m = m.get("us30y_20dago") if is_long else m.get("us10y_20dago")
-    y_3m = m.get("us10y_60dago") if not is_long else np.nan
+    y_3m = m.get("us30y_60dago") if is_long else m.get("us10y_60dago")
     y_pct = m.get("us30y_pct_1y") if is_long else m.get("us10y_pct_1y")
 
     d1 = y_now - y_1m if pd.notna(y_now) and pd.notna(y_1m) else np.nan
-    # For 30Y, use 10Y 3M direction as a macro-duration confirmation when 30Y 60d history is not stored.
-    d3 = (m.get("us10y") - m.get("us10y_60dago")) if is_long and pd.notna(m.get("us10y")) and pd.notna(m.get("us10y_60dago")) else (y_now - y_3m if pd.notna(y_now) and pd.notna(y_3m) else np.nan)
+    # 10Y engine uses 10Y 3M; 30Y engine uses 30Y 3M independently.
+    d3 = y_now - y_3m if pd.notna(y_now) and pd.notna(y_3m) else np.nan
     d2 = m.get("us2y") - m.get("us2y_20dago") if pd.notna(m.get("us2y")) and pd.notna(m.get("us2y_20dago")) else np.nan
     dr = m.get("real10y") - m.get("real10y_20dago") if pd.notna(m.get("real10y")) and pd.notna(m.get("real10y_20dago")) else np.nan
 
@@ -664,7 +664,9 @@ def bond_duration_score(asset_name, row, macro_state, macro_regime, m):
 
     notes = [f"듀레이션 촉매 {catalyst}/40", f"거시 {macro_pts}/25", f"금리수준 {yield_pts}/15", f"ETF확인 {tech}/20"]
     if pd.notna(d1): notes.append(f"대상금리 1M {d1:+.2f}%p")
+    if pd.notna(d3): notes.append(f"대상금리 3M {d3:+.2f}%p")
     if pd.notna(d2): notes.append(f"2Y 1M {d2:+.2f}%p")
+    if pd.notna(dr): notes.append(f"실질금리 1M {dr:+.2f}%p")
     return {
         "Entry Score": int(score), "Action": action, "CSS": css,
         "Price Pts": tech, "Trend Pts": catalyst, "Macro Pts": macro_pts,
@@ -942,6 +944,7 @@ m = {
     "us10y_60dago": daily_lookback(dgs10, 60),
     "us30y": latest_valid(dgs30),
     "us30y_20dago": daily_lookback(dgs30, 20),
+    "us30y_60dago": daily_lookback(dgs30, 60),
     "real10y": latest_valid(real10),
     "real10y_20dago": daily_lookback(real10, 20),
     "us10y_pct_1y": rolling_percentile(dgs10),
