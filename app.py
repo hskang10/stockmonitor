@@ -576,13 +576,10 @@ def fig_lines(series_dict, title, ytitle="", last_n=None):
 st.sidebar.header("설정")
 
 api_key = fred_key()
-if not api_key:
-    st.sidebar.warning("FRED_API_KEY가 없습니다.")
-    api_key_input = st.sidebar.text_input("FRED API Key", type="password")
-    if api_key_input:
-        api_key = api_key_input
+if api_key:
+    st.sidebar.success("FRED API Key 자동 연결됨")
 else:
-    st.sidebar.success("FRED API Key 연결됨")
+    st.sidebar.error("FRED_API_KEY가 설정되지 않았습니다. Streamlit Secrets 또는 환경변수를 확인하세요.")
 
 years = st.sidebar.slider("거시 시계열 조회기간(년)", 2, 10, 5)
 
