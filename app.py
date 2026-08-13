@@ -13,16 +13,32 @@ import yfinance as yf
 # PAGE
 # ============================================================
 st.set_page_config(
-    page_title="Macro & Multi-Asset Dashboard",
-    page_icon="📊",
+    page_title="Investment Decision Cockpit",
+    page_icon="🎯",
     layout="wide",
 )
 
-st.title("📊 Macro & Multi-Asset Dashboard")
-st.caption(
-    "중·단기: 최근 모멘텀·서프라이즈·금리·가격신호 | "
-    "장기: 6~18개월 거시 추세·경기국면·장기추세"
+st.markdown(
+    """
+    <style>
+    .block-container {padding-top: 1.15rem; padding-bottom: 2rem; max-width: 1550px;}
+    div[data-testid="stMetric"] {border:1px solid rgba(128,128,128,.18); border-radius:12px; padding:9px 12px;}
+    .section-label {font-size:.80rem; font-weight:750; letter-spacing:.05em; color:#7a7a7a; margin:.55rem 0 .35rem 0; text-transform:uppercase;}
+    .asset-card {border:1px solid rgba(128,128,128,.20); border-radius:15px; padding:14px 15px 12px 15px; min-height:190px; background:rgba(128,128,128,.025); margin-bottom:8px;}
+    .asset-title {font-size:1rem; font-weight:780; margin-bottom:1px;}
+    .asset-ticker {font-size:.76rem; color:#888; margin-bottom:8px;}
+    .action {display:inline-block; padding:4px 9px; border-radius:999px; font-size:.84rem; font-weight:780; margin-bottom:7px;}
+    .action-good {background:#dff5e7; color:#126a34;} .action-mid {background:#fff2cc; color:#755300;}
+    .action-watch {background:#fde5d6; color:#873a09;} .action-wait {background:#f2dddd; color:#861e1e;}
+    .score-line {font-size:.82rem; color:#666; margin:3px 0;} .reason {font-size:.79rem; line-height:1.42; color:#707070; margin-top:6px;}
+    .summary-box {border:1px solid rgba(128,128,128,.18); border-radius:13px; padding:12px 14px; background:rgba(128,128,128,.025); min-height:92px;}
+    .summary-big {font-size:1.15rem; font-weight:780; margin-bottom:4px;} .summary-small {font-size:.82rem; color:#777; line-height:1.4;}
+    </style>
+    """, unsafe_allow_html=True,
 )
+
+st.title("🎯 Investment Decision Cockpit")
+st.caption("첫 화면에서 7개 자산의 진입환경을 확인하고, 필요할 때만 거시·가격·컨센서스 상세 화면으로 내려갑니다.")
 
 # ============================================================
 # CONFIG
@@ -444,6 +460,84 @@ def recommendation_text(asset_name, group, row, macro_bias, macro_regime):
     return "확인 필요"
 
 
+
+def macro_fit_score(asset_name, group, macro_state, macro_regime, macro_bias, m):
+    """0~25. 미국 거시 기반 자산별 적합도 휴리스틱."""
+    if group == "Equity":
+        p = 10
+        if macro_bias == "Risk-on 우세": p += 8
+        elif macro_bias == "Risk-off 우세": p -= 6
+        if macro_state.get("Growth") == "개선": p += 4
+        elif macro_state.get("Growth") == "둔화": p -= 4
+        if macro_state.get("Inflation") == "둔화": p += 3
+        elif macro_state.get("Inflation") == "재가속": p -= 4
+        if macro_state.get("Financial Conditions") == "완화/안정": p += 3
+        elif macro_state.get("Financial Conditions") == "긴축/스트레스": p -= 3
+        cap = 19 if asset_name in ["KOSPI", "Nifty 50"] else 25
+        return int(np.clip(p, 0, cap))
+    if group == "Bond":
+        p = 10
+        if macro_state.get("Inflation") == "둔화": p += 6
+        elif macro_state.get("Inflation") == "재가속": p -= 7
+        if macro_state.get("Growth") == "둔화": p += 4
+        elif macro_state.get("Growth") == "개선": p -= 2
+        if "경착륙" in macro_regime: p += 4
+        if pd.notna(m.get("us10y")) and pd.notna(m.get("us10y_20dago")):
+            if m["us10y"] < m["us10y_20dago"]: p += 4
+            elif m["us10y"] > m["us10y_20dago"] + .25: p -= 4
+        return int(np.clip(p, 0, 25))
+    if group == "Gold":
+        p = 11
+        if "경착륙" in macro_regime or "스태그플레이션" in macro_regime: p += 6
+        if macro_state.get("Financial Conditions") == "긴축/스트레스": p += 3
+        if pd.notna(m.get("us10y")) and pd.notna(m.get("us10y_20dago")):
+            if m["us10y"] < m["us10y_20dago"]: p += 3
+            elif m["us10y"] > m["us10y_20dago"] + .25: p -= 3
+        return int(np.clip(p, 0, 21))
+    return 12
+
+
+def entry_decision(row, macro_state, macro_regime, macro_bias, m):
+    group, asset_name = row["분류"], row["자산"]
+    oversold, rsi, r1m = row.get("Oversold Score", np.nan), row.get("RSI14", np.nan), row.get("1M %", np.nan)
+    trend_up = row.get("MA200 Trend") == "상승"
+    price_pts = int(oversold * 10) if pd.notna(oversold) else 0
+    trend_pts = 20 if trend_up else 5
+    macro_pts = macro_fit_score(asset_name, group, macro_state, macro_regime, macro_bias, m)
+    if pd.isna(r1m): pullback_pts = 5
+    elif -12 <= r1m <= -2: pullback_pts = 15
+    elif -2 < r1m <= 1.5: pullback_pts = 10
+    elif -20 <= r1m < -12: pullback_pts = 8
+    elif 1.5 < r1m <= 5: pullback_pts = 5
+    else: pullback_pts = 0
+    score = price_pts + trend_pts + macro_pts + pullback_pts
+    if pd.notna(rsi) and rsi >= 70: score = min(score, 58)
+    if group == "Equity" and "경착륙" in macro_regime: score = min(score, 58)
+    if score >= 75: action, css = "진입 우호", "action-good"
+    elif score >= 60: action, css = "분할 진입", "action-mid"
+    elif score >= 45: action, css = "정찰 / 대기", "action-watch"
+    else: action, css = "대기", "action-wait"
+    notes=[]
+    if pd.notna(oversold): notes.append(f"과매도 {int(oversold)}/4")
+    notes.append("MA200 상승" if trend_up else "MA200 약세/미확인")
+    if pd.notna(rsi): notes.append(f"RSI {rsi:.0f}")
+    notes.append(f"거시 {macro_pts}/25")
+    if asset_name == "KOSPI": notes.append("원/달러·외인수급 별도 확인")
+    elif asset_name == "Nifty 50": notes.append("인도금리·루피 별도 확인")
+    elif group == "Gold": notes.append("실질금리·달러 별도 확인")
+    return {"Entry Score":int(score), "Action":action, "CSS":css, "Price Pts":price_pts,
+            "Trend Pts":trend_pts, "Macro Pts":macro_pts, "Pullback Pts":pullback_pts, "Reason":" · ".join(notes)}
+
+
+def card_html(row):
+    price, r1m = row.get("Price", np.nan), row.get("1M %", np.nan)
+    ptxt = "N/A" if pd.isna(price) else f"{price:,.2f}"
+    rtxt = "N/A" if pd.isna(r1m) else f"{r1m:+.1f}%"
+    return f"""<div class="asset-card"><div class="asset-title">{row['자산']}</div>
+    <div class="asset-ticker">{row['Ticker']}</div><div class="action {row['CSS']}">{row['Action']}</div>
+    <div class="score-line"><b>진입점수 {int(row['Entry Score'])}/100</b> · 1M {rtxt}</div>
+    <div class="score-line">가격 {ptxt} · MA200 {row['MA200 Trend']}</div><div class="reason">{row['Reason']}</div></div>"""
+
 def fig_lines(series_dict, title, ytitle="", last_n=None):
     fig = go.Figure()
     for name, s in series_dict.items():
@@ -588,43 +682,137 @@ m = {
 macro_state, macro_regime, macro_bias, macro_score = make_macro_summary(m)
 
 # ============================================================
-# TOP SUMMARY
+# BUILD ASSET DECISION TABLE BEFORE UI
 # ============================================================
-st.subheader("1. 현재 거시환경 요약")
-c1, c2, c3, c4, c5 = st.columns(5)
+asset_rows = []
+asset_metrics_map = {}
 
-c1.metric("경기국면(휴리스틱)", macro_regime)
-c2.metric("중단기 Risk Bias", macro_bias)
-c3.metric("물가", macro_state.get("Inflation", "N/A"))
-c4.metric("고용", macro_state.get("Employment", "N/A"))
-c5.metric("성장", macro_state.get("Growth", "N/A"))
+if not prices.empty:
+    for asset_name, ticker in asset_map.items():
+        if ticker in prices.columns:
+            met = asset_metrics(prices[ticker])
+            if met:
+                asset_metrics_map[asset_name] = met
+                asset_rows.append({"자산": asset_name, "Ticker": ticker, "분류": ASSET_GROUP[asset_name], **met})
 
-st.caption(
-    "※ 위 판정은 자동화된 휴리스틱입니다. 공식 경기침체 판정이나 수익률 예측이 아닙니다. "
-    "특히 한국·인도 주식에는 각국 경기·금리·환율이 추가로 중요합니다."
-)
+asset_df = pd.DataFrame(asset_rows)
+
+if not asset_df.empty:
+    decisions = [entry_decision(r, macro_state, macro_regime, macro_bias, m) for _, r in asset_df.iterrows()]
+    decision_df = pd.concat([asset_df.reset_index(drop=True), pd.DataFrame(decisions)], axis=1)
+else:
+    decision_df = pd.DataFrame()
+
+if macro_score >= 3:
+    buy_intensity = "정상~확대 검토"
+elif macro_score >= 0:
+    buy_intensity = "정상"
+elif macro_score >= -2:
+    buy_intensity = "축소"
+else:
+    buy_intensity = "방어"
 
 # ============================================================
 # TABS
 # ============================================================
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "🌐 Macro Regime",
-    "📈 Multi-Asset",
-    "🎯 Entry Signals",
+tab0, tab1, tab2, tab3, tab4 = st.tabs([
+    "🎯 Decision Cockpit",
+    "🌐 Macro Trends",
+    "📈 Asset Details",
     "🧾 Consensus",
-    "🔬 Raw / Diagnostics",
+    "🔬 Diagnostics",
 ])
 
 # ============================================================
-# TAB 1: MACRO
+# TAB 0: DECISION COCKPIT
+# ============================================================
+with tab0:
+    st.markdown('<div class="section-label">Market regime</div>', unsafe_allow_html=True)
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1.metric("거시국면", macro_regime)
+    c2.metric("전체 매수강도", buy_intensity)
+    c3.metric("중단기 Bias", macro_bias)
+    c4.metric("성장", macro_state.get("Growth", "N/A"))
+    c5.metric("물가", macro_state.get("Inflation", "N/A"))
+    c6.metric("고용", macro_state.get("Employment", "N/A"))
+
+    st.markdown('<div class="section-label">All assets — entry status</div>', unsafe_allow_html=True)
+
+    if decision_df.empty:
+        st.warning("시장가격 데이터를 불러오지 못해 자산별 진입판정을 표시할 수 없습니다.")
+    else:
+        order = list(DEFAULT_ASSETS.keys())
+        by_name = {r["자산"]: r for _, r in decision_df.iterrows()}
+
+        for names in [order[:4], order[4:]]:
+            cols = st.columns(len(names))
+            for col, name in zip(cols, names):
+                with col:
+                    if name in by_name:
+                        st.markdown(card_html(by_name[name]), unsafe_allow_html=True)
+                    else:
+                        st.markdown(
+                            f"""<div class="asset-card"><div class="asset-title">{name}</div>
+                            <div class="asset-ticker">{asset_map[name]}</div>
+                            <div class="action action-wait">데이터 확인</div>
+                            <div class="reason">가격 데이터를 불러오지 못했습니다.</div></div>""",
+                            unsafe_allow_html=True,
+                        )
+
+        st.markdown('<div class="section-label">Priority board</div>', unsafe_allow_html=True)
+        board = decision_df[[
+            "자산", "Action", "Entry Score", "Oversold Score", "RSI14", "MA200 Trend", "1M %", "Macro Pts"
+        ]].copy()
+        board.columns = ["자산", "판정", "진입점수", "과매도", "RSI", "MA200", "1개월", "거시적합"]
+        board = board.sort_values(["진입점수", "자산"], ascending=[False, True])
+
+        st.dataframe(
+            board,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "진입점수": st.column_config.ProgressColumn("진입점수", min_value=0, max_value=100, format="%d"),
+                "과매도": st.column_config.NumberColumn("과매도", format="%.0f"),
+                "RSI": st.column_config.NumberColumn("RSI", format="%.1f"),
+                "1개월": st.column_config.NumberColumn("1개월", format="%+.1f%%"),
+                "거시적합": st.column_config.ProgressColumn("거시적합", min_value=0, max_value=25, format="%d"),
+            },
+        )
+
+        top = board.iloc[0]
+        a, b, c = st.columns(3)
+        with a:
+            st.markdown(
+                f"""<div class="summary-box"><div class="summary-big">우선 확인: {top['자산']}</div>
+                <div class="summary-small">자동 진입점수 {int(top['진입점수'])}/100. 높은 점수부터 상세 탭에서 가격 위치를 확인합니다.</div></div>""",
+                unsafe_allow_html=True,
+            )
+        with b:
+            st.markdown(
+                f"""<div class="summary-box"><div class="summary-big">거시: {macro_regime}</div>
+                <div class="summary-small">성장 {macro_state.get('Growth','N/A')} · 물가 {macro_state.get('Inflation','N/A')} · 고용 {macro_state.get('Employment','N/A')} · 금융여건 {macro_state.get('Financial Conditions','N/A')}</div></div>""",
+                unsafe_allow_html=True,
+            )
+        with c:
+            st.markdown(
+                """<div class="summary-box"><div class="summary-big">판정 원칙</div>
+                <div class="summary-small">거시는 매수 강도를 조절하고, 실제 진입은 과매도·MA200 추세·최근 눌림을 함께 확인합니다.</div></div>""",
+                unsafe_allow_html=True,
+            )
+
+    st.caption(
+        "진입점수 = 과매도 40 + MA200 추세 20 + 자산별 거시적합도 25 + 최근 1개월 눌림 15. "
+        "RSI≥70 또는 경착륙 국면의 주식은 높은 판정을 제한합니다. KOSPI·Nifty는 미국 거시만으로 완결판정하지 않도록 거시점수 상한을 낮췄습니다."
+    )
+
+# ============================================================
+# TAB 1: MACRO TRENDS
 # ============================================================
 with tab1:
-    st.subheader("거시 추세: 12개월 큰 방향 + 최근 3~6개월 모멘텀")
+    st.subheader("거시 추세 — 12개월 큰 방향 + 최근 3~6개월 모멘텀")
 
-    # Summary table
     rows = []
-
-    def add_macro_row(name, series, fmt=".2f", inverse=False):
+    def add_macro_row(name, series, inverse=False):
         x = series.dropna()
         if len(x) == 0:
             rows.append([name, np.nan, np.nan, np.nan, np.nan, "N/A"])
@@ -644,317 +832,136 @@ with tab1:
     add_macro_row("Real Retail Sales YoY", real_retail_yoy)
     add_macro_row("Industrial Production YoY", indpro_yoy)
 
-    macro_table = pd.DataFrame(
-        rows,
-        columns=["지표", "현재", "3M 전", "6M 전", "12M 전", "최근 3M 방향"],
-    )
+    macro_table = pd.DataFrame(rows, columns=["지표", "현재", "3M 전", "6M 전", "12M 전", "최근 3M 방향"])
     st.dataframe(
-        macro_table.style.format({
-            "현재": "{:.2f}",
-            "3M 전": "{:.2f}",
-            "6M 전": "{:.2f}",
-            "12M 전": "{:.2f}",
-        }),
+        macro_table.style.format({"현재":"{:.2f}", "3M 전":"{:.2f}", "6M 전":"{:.2f}", "12M 전":"{:.2f}"}),
         use_container_width=True,
         hide_index=True,
     )
 
-    colA, colB = st.columns(2)
-    with colA:
-        inf_fig = fig_lines(
-            {
-                "CPI YoY": macro_series.get("CPI YoY", pd.Series(dtype=float)),
-                "Core CPI YoY": macro_series.get("Core CPI YoY", pd.Series(dtype=float)),
-                "Core PCE YoY": macro_series.get("Core PCE YoY", pd.Series(dtype=float)),
-            },
-            "Inflation — YoY",
-            "%",
-            last_n=36,
-        )
-        st.plotly_chart(inf_fig, use_container_width=True)
+    a, b = st.columns(2)
+    with a:
+        st.plotly_chart(fig_lines({
+            "CPI YoY": macro_series.get("CPI YoY", pd.Series(dtype=float)),
+            "Core CPI YoY": macro_series.get("Core CPI YoY", pd.Series(dtype=float)),
+            "Core PCE YoY": macro_series.get("Core PCE YoY", pd.Series(dtype=float)),
+        }, "Inflation — YoY", "%", 36), use_container_width=True)
+    with b:
+        st.plotly_chart(fig_lines({
+            "Core CPI 3M ann.": macro_series.get("Core CPI 3M Ann.", pd.Series(dtype=float)),
+            "Core CPI 6M ann.": macro_series.get("Core CPI 6M Ann.", pd.Series(dtype=float)),
+        }, "Inflation Momentum", "%", 36), use_container_width=True)
 
-    with colB:
-        mom_fig = fig_lines(
-            {
-                "Core CPI 3M ann.": macro_series.get("Core CPI 3M Ann.", pd.Series(dtype=float)),
-                "Core CPI 6M ann.": macro_series.get("Core CPI 6M Ann.", pd.Series(dtype=float)),
-                "Core PCE 3M ann.": macro_series.get("Core PCE 3M Ann.", pd.Series(dtype=float)),
-            },
-            "Inflation Momentum — Annualized",
-            "%",
-            last_n=36,
-        )
-        st.plotly_chart(mom_fig, use_container_width=True)
+    c, d = st.columns(2)
+    with c:
+        st.plotly_chart(fig_lines({"Payroll 3M avg": payroll_3m, "Payroll 6M avg": payroll_6m},
+                                  "Employment — Payroll Momentum", "천 명", 36), use_container_width=True)
+    with d:
+        st.plotly_chart(fig_lines({"Unemployment %": unrate}, "Unemployment Rate", "%", 36), use_container_width=True)
 
-    colC, colD = st.columns(2)
-    with colC:
-        emp_fig = fig_lines(
-            {
-                "Payroll 3M avg (k)": payroll_3m,
-                "Payroll 6M avg (k)": payroll_6m,
-            },
-            "Employment — Payroll Monthly Change",
-            "천 명",
-            last_n=36,
-        )
-        st.plotly_chart(emp_fig, use_container_width=True)
+    e, f = st.columns(2)
+    with e:
+        st.plotly_chart(fig_lines({"Real Retail Sales YoY": real_retail_yoy, "Industrial Production YoY": indpro_yoy},
+                                  "Growth / Demand", "%", 36), use_container_width=True)
+    with f:
+        st.plotly_chart(fig_lines({"US 2Y": dgs2, "US 10Y": dgs10, "US 30Y": dgs30},
+                                  "US Treasury Yields", "%", 504), use_container_width=True)
 
-    with colD:
-        emp2_fig = fig_lines(
-            {
-                "Unemployment %": unrate,
-            },
-            "Employment — Unemployment Rate",
-            "%",
-            last_n=36,
-        )
-        st.plotly_chart(emp2_fig, use_container_width=True)
-
-    colE, colF = st.columns(2)
-    with colE:
-        growth_fig = fig_lines(
-            {
-                "Real Retail Sales YoY": real_retail_yoy,
-                "Industrial Production YoY": indpro_yoy,
-            },
-            "Growth / Demand",
-            "%",
-            last_n=36,
-        )
-        st.plotly_chart(growth_fig, use_container_width=True)
-
-    with colF:
-        rates_fig = fig_lines(
-            {
-                "US 2Y": dgs2,
-                "US 10Y": dgs10,
-                "US 30Y": dgs30,
-            },
-            "US Treasury Yields",
-            "%",
-            last_n=504,
-        )
-        st.plotly_chart(rates_fig, use_container_width=True)
-
-    colG, colH = st.columns(2)
-    with colG:
-        claims_fig = fig_lines(
-            {"Initial Claims 4W avg": claims_4w},
-            "Initial Jobless Claims — 4W Average",
-            "건",
-            last_n=104,
-        )
-        st.plotly_chart(claims_fig, use_container_width=True)
-
-    with colH:
-        credit_fig = fig_lines(
-            {
-                "HY OAS": hy_oas,
-            },
-            "Credit Stress — High Yield OAS",
-            "%",
-            last_n=504,
-        )
-        st.plotly_chart(credit_fig, use_container_width=True)
+    g, h = st.columns(2)
+    with g:
+        st.plotly_chart(fig_lines({"Initial Claims 4W avg": claims_4w}, "Initial Jobless Claims", "건", 104), use_container_width=True)
+    with h:
+        st.plotly_chart(fig_lines({"HY OAS": hy_oas}, "Credit Stress — HY OAS", "%", 504), use_container_width=True)
 
 # ============================================================
-# TAB 2: MULTI-ASSET
+# TAB 2: ASSET DETAILS
 # ============================================================
-asset_rows = []
-asset_metrics_map = {}
-
-if not prices.empty:
-    for asset_name, ticker in asset_map.items():
-        if ticker in prices.columns:
-            met = asset_metrics(prices[ticker])
-            if met:
-                asset_metrics_map[asset_name] = met
-                row = {"자산": asset_name, "Ticker": ticker, "분류": ASSET_GROUP[asset_name], **met}
-                asset_rows.append(row)
-
-asset_df = pd.DataFrame(asset_rows)
-
 with tab2:
-    st.subheader("자산별 가격·추세·과매도 상태")
-
-    if asset_df.empty:
-        st.warning("시장가격 데이터를 불러오지 못했습니다.")
+    st.subheader("자산별 가격 위치와 진입점수 구성")
+    if decision_df.empty:
+        st.warning("시장가격 데이터가 없습니다.")
     else:
-        show_cols = [
-            "자산", "Ticker", "Price", "1M %", "3M %", "6M %", "1Y %",
-            "RSI14", "1Y Drawdown %", "Oversold Score", "MA200 Trend"
-        ]
-        st.dataframe(
-            asset_df[show_cols].style.format({
-                "Price": "{:,.2f}",
-                "1M %": "{:+.2f}%",
-                "3M %": "{:+.2f}%",
-                "6M %": "{:+.2f}%",
-                "1Y %": "{:+.2f}%",
-                "RSI14": "{:.1f}",
-                "1Y Drawdown %": "{:+.2f}%",
-                "Oversold Score": "{:.0f}",
-            }),
-            use_container_width=True,
-            hide_index=True,
+        selected = st.selectbox("자산 선택", decision_df["자산"].tolist())
+        r = decision_df.loc[decision_df["자산"] == selected].iloc[0]
+
+        c1, c2, c3, c4, c5, c6 = st.columns(6)
+        c1.metric("현재 판정", r["Action"])
+        c2.metric("진입점수", f"{int(r['Entry Score'])}/100")
+        c3.metric("과매도", f"{int(r['Oversold Score'])}/4" if pd.notna(r['Oversold Score']) else "N/A")
+        c4.metric("RSI14", f"{r['RSI14']:.1f}" if pd.notna(r['RSI14']) else "N/A")
+        c5.metric("1M", f"{r['1M %']:+.1f}%" if pd.notna(r['1M %']) else "N/A")
+        c6.metric("1Y 고점대비", f"{r['1Y Drawdown %']:+.1f}%" if pd.notna(r['1Y Drawdown %']) else "N/A")
+
+        st.write(
+            f"**점수 구성:** 가격 {int(r['Price Pts'])}/40 · 추세 {int(r['Trend Pts'])}/20 · "
+            f"거시 {int(r['Macro Pts'])}/25 · 눌림 {int(r['Pullback Pts'])}/15"
         )
+        st.caption(r["Reason"])
 
-        st.caption(
-            "Oversold Score: 최근 252거래일 기준 D20·D60 하위 20%, D200 하위 25%, RSI≤35를 각각 1점으로 합산(0~4). "
-            "표본 126일 미만이면 계산하지 않습니다."
-        )
-
-        normalized = pd.DataFrame()
-        for asset_name, ticker in asset_map.items():
-            if ticker in prices.columns:
-                s = prices[ticker].dropna()
-                s = s[s.index >= s.index.max() - pd.Timedelta(days=365)]
-                if len(s):
-                    normalized[asset_name] = s / s.iloc[0] * 100
-
-        if not normalized.empty:
+        ticker = r["Ticker"]
+        if ticker in prices.columns:
+            x = prices[ticker].dropna().tail(504)
+            ma20 = x.rolling(20).mean(); ma60 = x.rolling(60).mean(); ma200 = x.rolling(200).mean()
             fig = go.Figure()
-            for c in normalized.columns:
-                fig.add_trace(go.Scatter(x=normalized.index, y=normalized[c], name=c, mode="lines"))
-            fig.update_layout(
-                title="최근 1년 상대성과 (시작=100)",
-                height=430,
-                hovermode="x unified",
-                legend=dict(orientation="h"),
-                margin=dict(l=10, r=10, t=45, b=10),
-            )
+            fig.add_trace(go.Scatter(x=x.index, y=x, name="Price", mode="lines"))
+            fig.add_trace(go.Scatter(x=ma20.index, y=ma20, name="MA20", mode="lines"))
+            fig.add_trace(go.Scatter(x=ma60.index, y=ma60, name="MA60", mode="lines"))
+            fig.add_trace(go.Scatter(x=ma200.index, y=ma200, name="MA200", mode="lines"))
+            fig.update_layout(title=f"{selected} — 최근 약 2년", height=470, hovermode="x unified",
+                              margin=dict(l=10,r=10,t=45,b=10), legend=dict(orientation="h"))
             st.plotly_chart(fig, use_container_width=True)
 
+        detail_cols = ["자산","Ticker","Price","1M %","3M %","6M %","1Y %","RSI14","D20 %","D60 %","D200 %","1Y Drawdown %","Oversold Score","MA200 Trend"]
+        st.dataframe(pd.DataFrame([r[detail_cols]]), use_container_width=True, hide_index=True)
+
 # ============================================================
-# TAB 3: ENTRY SIGNALS
+# TAB 3: CONSENSUS
 # ============================================================
 with tab3:
-    st.subheader("중단기 / 장기 투자 참고판")
-
-    if asset_df.empty:
-        st.warning("가격 데이터가 없어 진입환경을 계산할 수 없습니다.")
-    else:
-        signal_rows = []
-        for _, r in asset_df.iterrows():
-            group = r["분류"]
-            sig = price_signal_text(r, group)
-            rec = recommendation_text(r["자산"], group, r, macro_bias, macro_regime)
-
-            # Different interpretation horizons
-            if group == "Equity":
-                long_view = (
-                    "장기추세 유지" if r["MA200 Trend"] == "상승"
-                    else "장기추세 약화/미확인"
-                )
-            elif group == "Bond":
-                long_view = (
-                    "채권가격 장기추세 우호" if r["MA200 Trend"] == "상승"
-                    else "채권가격 장기추세 약세/미확인"
-                )
-            else:
-                long_view = (
-                    "금 장기추세 우호" if r["MA200 Trend"] == "상승"
-                    else "금 장기추세 약세/미확인"
-                )
-
-            signal_rows.append({
-                "자산": r["자산"],
-                "거시국면": macro_regime,
-                "중단기 Macro Bias": macro_bias,
-                "가격신호": sig,
-                "Oversold": r["Oversold Score"],
-                "RSI": r["RSI14"],
-                "장기관점": long_view,
-                "현재 참고": rec,
-            })
-
-        signal_df = pd.DataFrame(signal_rows)
-        st.dataframe(
-            signal_df.style.format({"Oversold": "{:.0f}", "RSI": "{:.1f}"}),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        st.info(
-            "해석 원칙: 거시는 '매수 강도/리스크 예산'을 조절하고, 실제 진입은 가격·추세 신호로 확인합니다. "
-            "단일 지표 또는 자동 판정만으로 매수·매도를 결정하지 않는 구조입니다."
-        )
-
-        st.markdown("#### 자산별 거시 민감도")
-        sensitivity = pd.DataFrame([
-            ["S&P 500", "성장·기업이익", "10Y 금리, 신용스프레드", "연착륙·이익증가"],
-            ["Nasdaq 100", "성장·장기 실적", "실질/장기금리", "물가둔화 + 금리안정"],
-            ["Nifty 50", "인도 성장·유동성", "USD/INR, RBI, 유가", "미국 거시만으로 불충분"],
-            ["KOSPI", "수출·반도체·글로벌 경기", "USD/KRW, 외국인 수급, 한국 금리", "미국 거시 + 한국 변수 필요"],
-            ["US 10Y Treasury ETF", "디스인플레이션·성장둔화", "10Y 수익률", "금리 고점/하락"],
-            ["US Long Treasury ETF", "침체·디스인플레이션", "30Y 수익률·기간프리미엄", "금리 하락 시 민감도 큼"],
-            ["Gold", "실질금리·달러·불확실성", "실질금리·USD", "실질금리 하락/위험회피"],
-        ], columns=["자산", "주요 동력", "핵심 확인", "유리한 전형적 환경"])
-        st.dataframe(sensitivity, use_container_width=True, hide_index=True)
-
-# ============================================================
-# TAB 4: CONSENSUS
-# ============================================================
-with tab4:
-    st.subheader("컨센서스 서프라이즈 — 선택 입력")
-
+    st.subheader("당월 Actual vs Consensus")
     st.write(
-        "FRED는 실제 경제지표 시계열에 강하지만 시장 컨센서스 데이터는 제공하지 않습니다. "
-        "신뢰할 수 있는 별도 소스에서 받은 컨센서스를 CSV로 넣어 단기 서프라이즈를 관리합니다."
+        "FRED는 실제 경제지표 시계열에 사용하고, 시장 컨센서스는 별도 CSV로 관리합니다. "
+        "장기 Trend와 단기 Surprise를 섞지 않는 것이 목적입니다."
     )
 
     sample = pd.DataFrame({
-        "release_date": ["2026-08-01"],
-        "indicator": ["Core CPI MoM"],
-        "actual": [0.2],
-        "consensus": [0.2],
-        "previous": [0.3],
+        "release_date": ["2026-08-01"], "indicator": ["Core CPI MoM"],
+        "actual": [0.2], "consensus": [0.2], "previous": [0.3],
     })
-    st.download_button(
-        "컨센서스 CSV 예시 다운로드",
-        data=sample.to_csv(index=False).encode("utf-8-sig"),
-        file_name="consensus_template.csv",
-        mime="text/csv",
-    )
+    st.download_button("컨센서스 CSV 템플릿", data=sample.to_csv(index=False).encode("utf-8-sig"),
+                       file_name="consensus_template.csv", mime="text/csv")
 
     if consensus_file is not None:
         try:
             con = pd.read_csv(consensus_file)
-            required = {"release_date", "indicator", "actual", "consensus"}
+            required = {"release_date","indicator","actual","consensus"}
             if not required.issubset(con.columns):
                 st.error(f"필수 열이 없습니다: {sorted(required)}")
             else:
                 con["release_date"] = pd.to_datetime(con["release_date"], errors="coerce")
-                con["surprise"] = pd.to_numeric(con["actual"], errors="coerce") - pd.to_numeric(con["consensus"], errors="coerce")
+                con["actual"] = pd.to_numeric(con["actual"], errors="coerce")
+                con["consensus"] = pd.to_numeric(con["consensus"], errors="coerce")
+                con["surprise"] = con["actual"] - con["consensus"]
                 con = con.sort_values("release_date", ascending=False)
                 st.dataframe(con, use_container_width=True, hide_index=True)
-
-                # Simple recent surprise breadth; sign is not automatically "good/bad"
-                recent = con.head(12).copy()
-                st.caption(
-                    "주의: Surprise의 +/−는 '시장에 좋다/나쁘다'가 아닙니다. "
-                    "예: CPI 상방 surprise와 고용 상방 surprise는 시기별 시장 해석이 다를 수 있습니다."
-                )
+                st.caption("Surprise의 +/− 자체가 주가 호재/악재를 뜻하지는 않습니다. 당시 금리·경기 국면과 함께 해석해야 합니다.")
         except Exception as e:
             st.error(f"CSV 읽기 실패: {e}")
     else:
-        st.info("좌측 사이드바에서 컨센서스 CSV를 올리면 이 탭에서 Actual vs Consensus를 함께 볼 수 있습니다.")
+        st.info("사이드바에서 컨센서스 CSV를 올리면 표시됩니다.")
 
 # ============================================================
-# TAB 5: RAW / DIAGNOSTICS
+# TAB 4: DIAGNOSTICS
 # ============================================================
-with tab5:
-    st.subheader("데이터 진단")
-
+with tab4:
+    st.subheader("데이터 상태 / 진단")
     diagnostics = []
     for name, s in fred.items():
         x = s.dropna()
         diagnostics.append({
-            "데이터": name,
-            "FRED Series": FRED_SERIES[name],
+            "데이터": name, "FRED Series": FRED_SERIES[name],
             "최신 관측일": x.index[-1].date().isoformat() if len(x) else None,
-            "최신값": x.iloc[-1] if len(x) else np.nan,
-            "관측수": len(x),
+            "최신값": x.iloc[-1] if len(x) else np.nan, "관측수": len(x),
         })
     st.dataframe(pd.DataFrame(diagnostics), use_container_width=True, hide_index=True)
 
@@ -963,25 +970,12 @@ with tab5:
         for name, ticker in asset_map.items():
             if ticker in prices.columns:
                 x = prices[ticker].dropna()
-                md.append({
-                    "자산": name,
-                    "Ticker": ticker,
-                    "최신 가격일": x.index[-1].date().isoformat() if len(x) else None,
-                    "최신값": x.iloc[-1] if len(x) else np.nan,
-                    "관측수": len(x),
-                })
+                md.append({"자산":name, "Ticker":ticker,
+                           "최신 가격일":x.index[-1].date().isoformat() if len(x) else None,
+                           "최신값":x.iloc[-1] if len(x) else np.nan, "관측수":len(x)})
         st.dataframe(pd.DataFrame(md), use_container_width=True, hide_index=True)
 
-    st.warning(
-        "경제 데이터는 발표 후 수정될 수 있습니다. FRED의 최신 시계열은 수정된 과거값을 포함할 수 있으므로, "
-        "'당시 시장이 실제로 알고 있던 값(vintage)'을 엄밀히 백테스트하려면 ALFRED/real-time vintage 데이터가 필요합니다."
-    )
+    st.warning("FRED 일반 시계열은 과거 수정값을 반영할 수 있습니다. 당시 시장이 실제로 알고 있던 값으로 백테스트하려면 ALFRED/vintage 데이터가 필요합니다.")
 
-# ============================================================
-# FOOTER
-# ============================================================
 st.divider()
-st.caption(
-    "데이터: FRED API(거시) + yfinance/Yahoo Finance 공개 시장데이터(가격). "
-    "이 앱의 자동 판정은 정보 정리용 휴리스틱이며 투자성과를 보장하지 않습니다."
-)
+st.caption("데이터: FRED API(거시) + Yahoo Finance/yfinance(가격). 진입점수는 규칙 기반 의사결정 보조지표이며 미래 수익률 예측값이 아닙니다.")
